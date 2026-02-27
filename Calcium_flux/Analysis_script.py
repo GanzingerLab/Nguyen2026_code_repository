@@ -6,8 +6,7 @@ import utils as utils
 import os
 import numpy as np
 import pandas as pd
-# %%
-# STEP 1: extract metadata from file paths 
+# %% STEP 1: extract metadata from file paths 
 path = r'D:\Data\Chi_data\2. Ca flux'  # Root directory to scan
 csv_dirs = []
 #Look for CSV files 
@@ -72,8 +71,7 @@ files_info = (
     .apply(tuple, axis=1)     # make each row a tuple (path, surface_CAR)
     .tolist()                 # convert to list of tuples
 )
-# %%
-#STEP 2: define analysis parameters
+# %% STEP 2: define analysis parameters
 framerate = 1/3  # Frame rate used in analysis ([1/s])
 min_track_duration = 0.25  # Minimum track duration (Fraction of total duration)
 outlier_percentile = 0.01  # Percentile for filtering out outliers
@@ -104,9 +102,7 @@ print(
     f"Number of calcium traces: {df.groupby('DATASET')['TRACK_ID'].nunique()}")
 
 
-# %% 
-# STEP 3 - Peak Detection and Trace Classification
-
+# %% STEP 4 - Peak Detection and Trace Classification
 # Peak detection
 # Peaks are found using scipy.signal.find_peaks, with a prominence value of 0.1. Since sometimes the peaks do not 
 # completely go down to base level after the peak, we then exchange the prominence value to the difference between the intensity in 
@@ -128,19 +124,18 @@ print(
 df = utils.tracks_split_by_regression(df,frame_col='FRAME_SYNC',ycol='SMOOTH_NORM_MEAN_INTENSITY_CH1', peak_col='PEAK', rel_drop_thresh=0.2, 
                                r2_thresh=0.5,slope_thresh=threshold_value_final)
 
+df.to_hdf(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\Ca_flux.hdf', key = 'df')
 
-# %% Final plots
- # Contributions of Cell Statuses
+# %% Final plots 
+
+# % of cells in each category, and % of cells peaking. 
 fig, ax = plt.subplots(figsize=(6, 4))
 summary = utils.plot_cell_status_bars_percent(df, colors=('yellowgreen', 'wheat', 'gray'), ax=ax)
 fig, summary = utils.plot_peaking_percentage_boxplot(df)
 plt.show()
 
 
-# %%
-
-
-
+# %% Peak prominence 
 fig, ax = plt.subplots(figsize=(6, 6))
 
 # Prepare data grouped by dataset
@@ -165,7 +160,7 @@ ax.grid(axis='y', linestyle=':', alpha=0.5)
 
 plt.tight_layout()
 plt.show()
-# %%
+# %% Time until first peak, in sec
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -201,7 +196,7 @@ plt.tight_layout()
 plt.savefig(r'D:\Data\Chi_data\2. Ca flux\selfmade_chamber\time_first_peak_box.pdf', dpi = 600, bbox_inches='tight')
 plt.show()
 
-# %%
+# %% Same but violin plot
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -248,7 +243,7 @@ plt.tight_layout()
 plt.savefig(r'D:\Data\Chi_data\2. Ca flux\selfmade_chamber\time_first_peak_violin.pdf', dpi = 600, bbox_inches='tight')
 plt.show()
 
-# %%
+# %% Final plot for paper
 #With filtering and proper color code.
 fig, summary = utils.plot_peaking_percentage_boxplot(df)#%%
 color_scheme = {'SNAP':'#bfc1c3ff', 
@@ -280,4 +275,6 @@ filtered_summary = summary2[
 ]
 
 utils.plot_peaking_percentage_boxplot_from_summary2(filtered_summary, color_scheme= color_scheme)
+plt.savefig(r"P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig3_Ca_peaking_percent.pdf", dpi = 600)
+plt.savefig(r"P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig3_Ca_peaking_percent.png", dpi = 600)
 plt.show()
