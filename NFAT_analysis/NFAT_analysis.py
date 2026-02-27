@@ -20,20 +20,23 @@ from skimage.segmentation import watershed
 from skimage.feature import peak_local_max
 from scipy.ndimage import binary_fill_holes, distance_transform_edt
 from skimage.measure import regionprops_table
+import seaborn as sns
+from scipy.stats import mannwhitneyu
+import itertools
 #%%
 class NFAT: 
     """
     A class for analyzing NFAT translocation in ND2 image files.
     
     This class handles loading ND2 images, segmenting nuclei and cytoplasm,
-    tracking cells, and computing fluorescence ratios for NFAT translocation detection.
+    tracking cells, and computing N/C ratios for NFAT translocation detection.
     """
     def __init__(self, file_path):
         self.folder = os.path.split(file_path)[0]    
         self.open_image(file_path)
     def open_image(self, file_path):
         """
-        Load and extract channels from the ND2 file.
+        Load and extract channels from the ND2 file. Used opon initiinitialization of the the object. 
         
         Parameters:
         file_path (str): Path to the ND2 file.
@@ -50,7 +53,6 @@ class NFAT:
         fluo = image_data[:, 1, :, :].astype(float)      
         self.nuc = ch1
         self.fluo = fluo
-
     def process_nuclei_image(self):
         """
         Process the nucleus channel for illumination correction and normalization.
@@ -69,13 +71,13 @@ class NFAT:
         mn = self.nuc_corr.min(axis=(1, 2), keepdims=True)
         mx = self.nuc_corr.max(axis=(1, 2), keepdims=True)
         self.nuc_corr_norm = (self.nuc_corr - mn) / (mx - mn + 1e-8)
-
     def _segment_nuclei_frame(self, nuc0, 
         smooth_sigma=1,
         min_size=200,
         min_distance=15):
         """
-        Segment nuclei in a single frame.
+        Segment nuclei in a single frame. Using a distance-based watershed on a 
+        triangle-thresholded nuclei image. 
         
         Parameters:
         nuc0 (np.ndarray): Normalized nucleus image for the frame.
@@ -127,10 +129,10 @@ class NFAT:
         for i in range(T):
             out[i] = self._segment_nuclei_frame(self.nuc_corr_norm[i], smooth_sigma, min_size, min_distance)
         self.markers = out
-
     def _segment_cyto_frame(self, cyto_s, markers, R = 10, min_size = 200, hole_size = 100):
         """
-        Segment cytoplasm in a single frame based on nuclei markers.
+        Segment cytoplasm in a single frame based on nuclei markers using a traingle-thresholded 
+        cytoplasmatic mask.  
         
         Parameters:
         cyto_s (np.ndarray): Cytoplasm image for the frame.
@@ -191,7 +193,6 @@ class NFAT:
         """
         self.segment_nuclei_stack(smooth_sigma, min_size, min_distance)
         self.segment_cyto_stack(R, min_size, hole_size)
-
     def remove_nuclei_from_cells(self):
         """
         Remove nuclei regions from cytoplasm labels to get cytoplasm-only mask.
@@ -202,7 +203,6 @@ class NFAT:
         cyto_only = self.cyto_labels.copy()
         cyto_only[self.markers > 0] = 0
         self.cyto_only = cyto_only
-
     def assign_nuc_to_cell(self):
         """
         Assign each nucleus to its corresponding cell.
@@ -231,7 +231,6 @@ class NFAT:
                 })
 
         return pd.DataFrame(rows)
-
     def labels_to_trackpy_features(self):
         """
         Convert labeled objects to trackpy-compatible features.
@@ -259,7 +258,6 @@ class NFAT:
                 rows.append(row)
 
         return pd.DataFrame(rows)
-
     def save_cell_outline_video(self,
         cyto,
         cyto_labels,
@@ -342,7 +340,6 @@ class NFAT:
         tiff.imwrite(out_path, frames_rgb, photometric="rgb")
 
         return out_path
-
     def precompute_mean_table(self, label_stack, image_stack, value_name,
                             label_col="nuc_label", frame_col="frame"):
         """
@@ -373,7 +370,6 @@ class NFAT:
             rows.append(df)
 
         return pd.concat(rows, ignore_index=True)
-
     def compute_all_means(self, measurements):
         """
         Compute mean intensities for multiple measurements.
@@ -393,27 +389,42 @@ class NFAT:
             )
             tables.append(df)
         return tables
-    def _has_n_consecutive_ones(seld, arr, n=4):
+    def _has_n_consecutive_ones(self, arr, n=4):
+        """
+        Check whether a 1D binary array contains at least n consecutive ones.
+        
+        Parameters:
+        arr (1D array): Binary array (values 0 or 1) to analyze.
+        n (int): Minimum number of consecutive ones required.
+        
+        Returns:
+        bool: True if at least n consecutive ones are present, False otherwise.
+        """
         kernel = np.ones(n)
         conv = np.convolve(arr, kernel, mode='valid')
         return np.any(conv == n)
-    def analyze_NFAT(self, thr = 1.05, save_outlines=False): 
+    def analyze_NFAT(self, thr = 1.05, n=4, save_outlines=False): 
         """
-        Perform full NFAT translocation analysis.
+        Perform full NFAT translocation analysis, including segmentation,
+        tracking, intensity extraction, and N/C ratio classification.
         
         Parameters:
-        save_outlines (bool): Whether to save outline video.
+        thr (float): Threshold for nuclear-to-cytoplasmic ratio (N/C) used to
+                    classify NFAT translocation (default = 1.05).
+        save_outlines (bool): Whether to save an outline and tracking overlay video.
         
         Returns:
-        results dict
-        linked DataFrame
+        dict: Dictionary mapping particle IDs to translocation status 
+            (1 = translocated, 0 = not translocated).
+        pd.DataFrame: Per-frame measurements for each tracked cell, including
+                    nuclear and cytoplasmic mean intensities and N/C ratios.
         """
+        # Preprocessing and segmentation
         self.process_nuclei_image()
-
         self.segment_channels()
         self.remove_nuclei_from_cells()
-
         nuc_to_cell = self.assign_nuc_to_cell()
+        # Convert labeled nuclei into trackpy-compatible features
         df_to_track = self.labels_to_trackpy_features()
         df_to_track = df_to_track.merge(
             nuc_to_cell,
@@ -421,11 +432,12 @@ class NFAT:
             right_on=["frame", "nuc_label"],
             how="left"
         ).drop(columns=["label"])
-
+        # Track nuclei across frames 
         linked = tp.link_df(df_to_track, search_range=25, memory=2)
+        # Filter out short tracks (require at least 1/3 of movie length)
         track_len = linked.groupby("particle")["frame"].transform("nunique")
         linked_filt = linked[track_len >= self.nuc_corr.shape[0]/3].copy()
-
+        # Extract mean fluorescence measurements
         measurements = [
             # nuclear region
             {"mask": self.markers,            "image": self.fluo,     "name": "mean_fluo_in_nuc"},
@@ -435,12 +447,17 @@ class NFAT:
             {"mask": self.cyto_only, "image": self.fluo,     "name": "mean_fluo_cyto"},
         ]
         tables = self.compute_all_means(measurements)
+        
+        # Merge per-frame intensity measurements into tracking dataframe
         for df in tables:
             linked_filt = linked_filt.merge(df, on=["frame", "nuc_label"], how="left")  
-
+        # Remove incomplete entries
         self.linked_filt2 = linked_filt.dropna().copy()
+        # Compute nuclear-to-cell and nuclear-to-cytoplasm ratios
         self.linked_filt2.loc[:,'nuc_cell_ratio'] = self.linked_filt2.loc[:,'mean_fluo_in_nuc']/self.linked_filt2.loc[:,'mean_fluo_cell']
         self.linked_filt2.loc[:,'nuc_cyto_ratio'] = self.linked_filt2.loc[:,'mean_fluo_in_nuc']/self.linked_filt2.loc[:,'mean_fluo_cyto']
+        
+        # Optional: save diagnostic outline video
         if save_outlines:
             self.save_cell_outline_video(
             cyto=self.fluo,             
@@ -449,12 +466,8 @@ class NFAT:
             linked_df=self.linked_filt2,
             out_path=os.path.join(self.folder, "cell_tracking_outlines.tif")
             )
-
-        # rng = np.random.default_rng(0)
+        # Classify NFAT translocation
         particles = self.linked_filt2["particle"].unique()
-        # k = min(10, len(particles))
-        # pick = rng.choice(particles, size=k, replace=False)
-        # window = 5
         trans = 0
         cells = 0
         self.results = {}
@@ -463,102 +476,14 @@ class NFAT:
             is_trans = 0
             d = self.linked_filt2[self.linked_filt2["particle"] == pid].sort_values("frame").copy()
             higher_1 = d.nuc_cyto_ratio > thr
-            if self._has_n_consecutive_ones(higher_1, 4):
+            # Check whether N/C ratio exceeds threshold for ≥4 consecutive frames
+            if self._has_n_consecutive_ones(higher_1, n):
                 trans +=1
                 is_trans = 1
             self.results[pid] = is_trans
-            # d["nuc_cyto_ratio_roll"] = (
-            #     d["nuc_cyto_ratio"]
-            #     .rolling(window=window, center=True, min_periods=1)
-            #     .mean()
-            # )
-            # d["nuc_cell_ratio_roll"] = (
-            #     d["nuc_cell_ratio"]
-            #     .rolling(window=window, center=True, min_periods=1)
-            #     .mean()
-            # )
-            # frames = list(d.frame)
-            # if len(frames) < 20:
-            #     continue
-            # cells +=1
-            # y = np.log(d["nuc_cell_ratio_roll"].to_numpy() + 1e-8)
-            # x = d["frame"].to_numpy().astype(float)
-            # X = x.reshape(-1, 1)
-
-            # # robust trend estimation
-            # model = TheilSenRegressor(random_state=0)
-            # model.fit(X, y)
-
-            # slope = float(model.coef_[0])   # log fold-change per frame
-            # yhat = model.predict(X)
-            # resid = y - yhat
-
-            # # robust noise estimate (MAD)
-            # noise = 1.4826 * np.median(np.abs(resid))
-
-            # # total duration in frames
-            # Tspan = float(x.max() - x.min())
-
-            # # biological minimum: 10% increase over the movie
-            # min_total_FC = 1.10
-            # min_slope = np.log(min_total_FC) / Tspan
-
-            # # noise-based safeguard (3× noise)
-            # noise_slope = 3.0 * noise / Tspan
-
-            # # final threshold
-            # thr_slope = max(min_slope, noise_slope)
-            # is_trans = slope >= thr_slope
-
-            # # store result (convert back to fold-change for reporting)
-            # total_FC = float(np.exp(slope * Tspan))
-            # self.results[pid] = [int(is_trans), total_FC]
-
-            # if is_trans:
-            #     trans += 1
-
-        #     ### --- diagnostic plot (keeps your original style) ---
-        #     plt.figure(figsize=(4, 3))
-        #     # plt.plot(d["frame"], np.log(d["nuc_cell_ratio_roll"] + 1e-8), label="nuc / cell", marker="o")
-        #     # plt.plot(d["frame"], np.log(d["nuc_cyto_ratio_roll"] + 1e-8), label="nuc / cyto", marker="o")
-        #     plt.plot(d["frame"], (d["nuc_cell_ratio_roll"] + 1e-8), label="nuc / cell", marker="o")
-        #     plt.plot(d["frame"],(d["nuc_cyto_ratio_roll"] + 1e-8), label="nuc / cyto", marker="o")
-        #     plt.plot(d["frame"], yhat, label="trend (nuc/cyto)", linewidth=2)
-
-        #     plt.xlabel("frame")
-        #     plt.ylabel("ratio")
-        #     plt.title(
-        #         f"Particle {int(pid)} | FC={total_FC:.3f} | slope={slope:.3g}"
-        #     )
-        #     plt.legend()
-        #     plt.tight_layout()
-        #     plt.show()
-        #     start = d[d.frame <=frames[10]]
-        #     end = d[d.frame >=frames[-10]]
-
-        #     ratio = end['nuc_cyto_ratio_roll'].median()/start['nuc_cyto_ratio_roll'].median()
-        #     if ratio >= 1.05:
-        #         self.results[pid] = [1,ratio]
-        #         trans += 1
-        #     else: 
-        #         self.results[pid] = [0,ratio]
-
-        #     plt.figure(figsize=(4, 3))
-        #     plt.plot(d["frame"], d["nuc_cell_ratio_roll"], label="nuc / cell", marker="o")
-        #     plt.plot(d["frame"], d["nuc_cyto_ratio_roll"], label="nuc / cyto", marker="o")
-
-        #     plt.xlabel("frame")
-        #     plt.ylabel("ratio")
-        #     plt.title(f"Particle {int(pid)}, ratio = {ratio}")
-        #     plt.legend()
-        #     plt.tight_layout()
-        #     plt.show()
-
-        # print(f'number cells: {cells}')
-        # print(f'number trans: {trans}')
-        # print(f'percentage trans {trans/cells}')
+            
         return  self.results, self.linked_filt2
-#%%
+#%% Find all .nd2 files
 path = r'P:\10 CART Chi\6. All data\3. NFAT translocation\with Hoechst nucleus stain'
 nd2_files = []
 
@@ -567,67 +492,42 @@ for root, dirs, files in os.walk(path):
         if f.lower().endswith(".nd2"):
             nd2_files.append(os.path.join(root, f))
 
-
-# nfat_obj = NFAT(nd2_files[0])
-# results, linked_filt2 = nfat_obj.analyze_NFAT(save_outlines=True)
-#%%
-all_results = pd.DataFrame()
+#%% Run analuysis for all nd2 files and make df with all results
+all_dfs = []
 for folder in nd2_files:
     print('Processing:', folder)
-    results, linked  = NFAT(folder).analyze_NFAT(save_outlines=False)
-    results_df = pd.DataFrame.from_dict(results, orient='index', columns=['translocated'])
-    results_df['folder'] = folder 
-    all_results = pd.concat([all_results, results_df], ignore_index=True)
-#%%
-all_results2 = all_results[['folder', 'translocated']]
+    results, linked = NFAT(folder).analyze_NFAT(save_outlines=False)
+    results_df = (
+        pd.DataFrame.from_dict(results, orient='index', columns=['translocated'])
+          .rename_axis('cell_id')
+          .reset_index()
+    )
+    results_df['folder'] = folder
+    all_dfs.append(results_df)
+
+all_results = pd.concat(all_dfs, ignore_index=True)
+all_results2 = all_results[['folder', 'cell_id','translocated']]
+#%% Calculate proportion of cells that show NFAT translocation
+
 stats = all_results2.groupby('folder')['translocated'].agg(['sum', 'count'])
 stats['prop'] = stats['sum'] / stats['count']
 stats = stats.reset_index()  # Move 'folder' to a column
-stats['expr'] = stats['folder'].str.split(r'\\').str[5]
-stats['dil'] = stats['folder'].str.split(r'\\').str[6]
-stats['CAR'] = stats['folder'].str.split(r'\\').str[8]
+stats['expr'] = stats['folder'].str.split(r'\\').str[5] #add expression level
+stats['dil'] = stats['folder'].str.split(r'\\').str[6] # add dilution level
+stats['CAR'] = stats['folder'].str.split(r'\\').str[8] # Add CAR variant
 #%%
-# all_results.loc[all_results.ratio >= 1, 'translocated'] = 1
-# all_results.loc[all_results.ratio < 1, 'translocated'] = 0
-stats = all_results.groupby('folder')['translocated'].agg(['sum', 'count'])
-stats['prop'] = stats['sum'] / stats['count']
-stats = stats.reset_index()  # Move 'folder' to a column
-stats['expr'] = stats['folder'].str.split(r'\\').str[5]
-stats['dil'] = stats['folder'].str.split(r'\\').str[6]
-stats['CAR'] = stats['folder'].str.split(r'\\').str[8]
-
-#%%
-import seaborn as sns
-
-from scipy.stats import mannwhitneyu
 stats_or = stats.copy()
 groups = stats.groupby(["CAR", 'expr', 'dil'])["prop"]
 labels = list(groups.groups.keys())
-
-# g1 = groups.get_group(labels[0])
-# g2 = groups.get_group(labels[1])
-
-# u, p = mannwhitneyu(g1, g2, alternative="two-sided")
-
-# y = stats["prop"].max() + 0.05
 stats.loc[stats.dil == '10His-SNAP', 'CAR'] = '10His-SNAP'
-
 
 fig, ax = plt.subplots(figsize=(8,6))
 sns.boxplot(data=stats, y='prop', x='CAR', hue= 'dil', showfliers=False)
 sns.stripplot(data=stats, y='prop', x='CAR', color='black', alpha=0.5, jitter=True)
-# ax.plot([0, 1], [y, y], color="black")
-# ax.text(
-#     0.5,
-#     y + 0.02,
-#     f"p = {p:.4f}",   # <-- decimal notation
-#     ha="center"
-# )
 plt.ylabel('Proportion of cells with NFAT translocation')
 plt.ylim(0,1)
 #%%
-from scipy.stats import mannwhitneyu
-import itertools
+
 
 pairwise_results = []
 
