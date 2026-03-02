@@ -1,10 +1,5 @@
 #%%
-# -*- coding: utf-8 -*-
-"""
-Created on Mon Jul 28 13:40:42 2025
-
-@author: castrolinares
-"""
+# STEP 0: set the proper parameters in the auxiliary settings objects. 
 from spit import settings 
 from spit.SPIT import SPIT_Run, SPIT_Dataset, localize_tiff_run, localize_tiff_dataset
 
@@ -54,11 +49,11 @@ class RegistrationSettings:
     
 class LocalizationSettings:
     def __init__(self):
-        self.box = 11 #same as in picasso localize
-        self.gradient405 = 300 #same as in picasso localize
-        self.gradient488 = 1053 #same as in picasso localize
-        self.gradient561 = 500 #same as in picasso localize
-        self.gradient638 = 4534 #same as in picasso localize
+        self.box = 7 #same as in picasso localize
+        self.gradient405 = 200 #same as in picasso localize
+        self.gradient488 = 500 #same as in picasso localize
+        self.gradient561 = 200 #same as in picasso localize
+        self.gradient638 = 500 #same as in picasso localize
         
         #####USED ONLY FOR AFFINE TRANSFORM OF TIFF FILES#####
         self.gradient_l = 500    #same as in picasso localize
@@ -75,7 +70,7 @@ class LocalizationSettings:
             'qe': 0.9  #In Picasso qe (quantum efficiency) is not used anymore. It is left for bacward compatibility. 
         }
         
-        self.skip = '561'
+        self.skip = ''
         self.suffix = '' #sufix for the name of the file, if necessary.
         self.transform = False #Do non-affine corrections of the localized spots if you have multiple channels.
         self.plot = True 
@@ -96,9 +91,9 @@ class LinkSettings:
 
 class ColocTracksSettings:
     def __init__(self):
-        self.ch0 = '561' #reference channel
-        self.ch1 = '638' #to compare with ch0 
-        self.th = 300 #maximum distanc considered
+        self.ch0 = '638' #reference channel
+        self.ch1 = '488' #to compare with ch0 
+        self.th = 250 #maximum distanc considered
         self.min_overlapped_frames = 5 #minimum amunt of frames in which the spots of the tracks have to be closer than the threshold distance set in th in a row.
         self.min_len_track = 5  #minumum length of a track to be considered for colocalization
         self.suffix = '' #sufix for the name of the file, if necessary.
@@ -106,8 +101,8 @@ class ColocTracksSettings:
 
 class ColocLocsSettings:
     def __init__(self):
-        self.ch0 = '561'#'561nm'  
-        self.ch1 = '638' #'638nm' 
+        self.ch0 = '638'#'561nm'  
+        self.ch1 = '488' #'638nm' 
         
         #####USED ONLY FOR AFFINE TRANSFORM OF TIFF FILES#####
         self.ch0_tiffs = 'l_ch'#'561nm'  
@@ -119,110 +114,13 @@ class ColocLocsSettings:
         self.dt = None #specify the exposure time (in seconds!) or None. If None, the script will look for it in the _result.txt file. 
         
 settings = settings.Settings(RegistrationSettings, LocalizationSettings, LinkSettings, ColocTracksSettings, ColocLocsSettings)
-#%%
-#In this new version of SPIT, please run SPIT commands under an if __name__ == "__main__": 
-                    #It is veri important to avoid problems with multiprocessing (during linking). If you, in the same script start analyzing
-                    #other stuff from the ouput, then you can stop using the clause.
-#This new versio uses object oriented programming to share data and simplify the analysis process. There are four types of objects:
-    #SPIT_Run --> used to run SPIT in a single run folder.
-    #SPIT_Dataset --> used to run SPIT in all the folders within a folder (a dataset). All the data will then be analized with the same 
-    #parameters, as one should do to be consitent. 
-    #localize_tiff_run --> to process snapshots in tif format from K2 or Annapurna. 
-    #localize_tiff_datset --> same idea as SPIT_Dataset, but for snapshots in tif format from K2 or Annapurna. 
-#To initialize one of this you do (first check the setting and run the setting cell, you will pass the settings to the object):
+#%% STEP1: Affine_correct the images
 if __name__ == "__main__":
-    #spit_run = SPIT_Run(folder to analyze, settings, folder to save the output)
-    #it is the same for localize_tiff_run. Example:
-    spit_run = SPIT_Run(r'D:\Data\test_error_result_files\chi\Run00002', settings, r'D:\Data\test_error_result_files')
-    #spit_dataset = (folder to analyze, settings)
-    #it is the same for localize_tiff_dataset. Example:
-    spit_datset = SPIT_Dataset(r'D:\Data\test_error_result_files', settings)
-    #then you can run different command which names I hope are self-explanatory:
-    # for SPIT_Run:
-    spit_run.affine_transform()
-    spit_run.localize()
-    spit_run.roi() #to use this one, after affine_transform(), please open the images with imageJ and using the freehand tool, 
-        #draw ROIs and saved them with name with the format: roiX.roi where X starts at 0 and goes up (to as many ROIs as you have (minus one))
-    spit_run.link()
-    spit_run.coloc_tracks()
-    spit_run.coloc_spots()
-    spit_run.full_analysis_noROI(mode = 'tracks')  #Does the full analysis without considering ROIs colocalizing . Colocalizes full tracks. 
-        #if mode = 'spots' it will colocalize first the spots and then link (it will run link twice, once for the separated channels and once for the coloc channel)
-    spit_run.full_analysis_ROI(mode = 'tracks') #does the same as the above but uses ROIs. For that, you first have to run .affine_transform()
-        #then make the ROIs, and then run this command (which will start by localize)
+    test4 = SPIT_Dataset(r'D:\Data\Chi_data\20250801_filtered', settings)
+    test4.affine_transform()
     
-    
-    #SPIT_Datset has more or less the same commands, but it does each function per folder. 
-    spit_datset.affine_transform() #this will give all the separated channels in the output folder (which will be just inside of the 
-        #folder to analyze) for each of the subfolders containing .raw files. 
-    spit_datset.localize() #same as above but with colocalize. 
-    spit_datset.roi() #to use this one, after affine_transform(), please open the images with imageJ and using the freehand tool, 
-        #draw ROIs and saved them with name with the format: roiX.roi where X starts at 0 and goes up (to as many ROIs as you have (minus one))
-    spit_datset.link()
-    spit_datset.coloc_tracks()
-    spit_datset.coloc_spots()
-    spit_datset.SPIT_noROI(mode = 'tracks')  #Does the full analysis without considering ROIs colocalizing . Colocalizes full tracks.
-        #if mode = 'spots' it will colocalize first the spots and then link (it will run link twice, once for the separated channels and once for the coloc channel)
-    spit_datset.SPIT_ROI(mode = 'tracks') #does the same as the above but uses ROIs. For that, you first have to run .affine_transform()
-        #then make the ROIs, and then run this command (which will start by localize)
-    
-    
-    #Similarly, localize_tiff_run and localize_tiff_dataset have the functions (both have the same function names, but one does it for 
-    #one folder, the other for the whole datset):
-    #.affine_transform()
-    #.localize()
-    #.roi()
-    #.colocalize() --> colocalizes spots
-    #.full_analysis_noROI()
-    #.full_analysis_ROI()
-
-
-#%% EXAMPLE
+#%%STEP 2: Go to imageJ and make manual ROIs with the freehand tool based on the maximum projection image.
+#%%STEP3: 
 if __name__ == "__main__":
-    test = SPIT_Dataset(r'D:\Data\test_error_result_files', settings)
-    test.affine_transform()
-    #I make the ROIs files and then
-    test.SPIT_ROI()  #simply like this uses mode = 'tracks' as default. 
-#%% EXAMPLE 2
-if __name__ == "__main__":
-    test2 = localize_tiff_dataset(r'D:\Data\test_error_result_files\snaps', settings)
-    test2.full_analysis_noROI()
-#%%EXAMPLE 3
-# I am testing gradient values, so I run it in a single folder
-if __name__ == "__main__":
-    test3 = SPIT_Run(r'D:\Data\test_error_result_files\Run00007', settings, r'D:\Data\test_error_result_files')
-    test3.affine_transform()
-#now that I have the separated channels, I can make a new cell:
-#%%
-#and under the __name__ == "__main__" clause again, I can try different gradient values:
-if __name__ == "__main__":
-    test3.localize()  #this will do it with the settings I have above. 
-#%%
-# But I can use this objects to more easily try differnt things, like modifying settings like the gardient values used to detect spots:
-if __name__ == "__main__":
-    original561 = settings.localization_settings.gradient561
-    original638 = settings.localization_settings.gradient638 
-    for i in range(300, 800, 100):
-        settings.localization_settings.gradient561 = i
-        settings.localization_settings.gradient638 = i  
-        settings.localization_settings.suffix = f"-gradient-{i}"
-        test4 = SPIT_Run(r'D:\Data\test_error_result_files\Run00007', settings, r'D:\Data\test_error_result_files')
-        test4.affine_transform()
-        test4.localize()
-    settings.localization_settings.gradient561 = original561 #I fo this so the values match what was set on the written setting
-    settings.localization_settings.gradient638 = original638
-        #if you try to continue with the analysis for all this output, SPIT only will do it for the first folders it finds, so you have to 
-        #reorder or check which one you prefer from these files. 
-#%%
-if __name__ == "__main__":
-    test4 = SPIT_Dataset(r'P:\18 REPRESSIT\CELL_experiments\Anna\20260113_AB001_training', settings)
-    test4.localize()
-    # test4.roi()
-
-
-#%%
-if __name__ == "__main__":
-    test4 = SPIT_Run(r'P:\18 REPRESSIT\CELL_experiments\Anna\20260113_AB001_training\pMHC_well1\Run00005', settings)
-    # test4.affine_transform()
-    test4.localize()
-    # test4.roi()
+    test4 = SPIT_Dataset(r'D:\Data\Chi_data\20250801_filtered', settings)
+    test4.SPIT_ROI()
