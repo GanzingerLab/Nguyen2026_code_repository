@@ -22,7 +22,6 @@ from scipy.ndimage import binary_fill_holes, distance_transform_edt
 from skimage.measure import regionprops_table
 import seaborn as sns
 from scipy.stats import mannwhitneyu
-import itertools
 #%%
 class NFAT: 
     """
@@ -389,20 +388,34 @@ class NFAT:
             )
             tables.append(df)
         return tables
-    def _has_n_consecutive_ones(self, arr, n=4):
+    def _first_n_consecutive_ones(self, arr, n=4):
         """
-        Check whether a 1D binary array contains at least n consecutive ones.
-        
-        Parameters:
-        arr (1D array): Binary array (values 0 or 1) to analyze.
-        n (int): Minimum number of consecutive ones required.
-        
-        Returns:
-        bool: True if at least n consecutive ones are present, False otherwise.
+        Return the index of the first occurrence of n consecutive ones
+        in a 1D binary array.
+
+        Parameters
+        ----------
+        arr : 1D array-like
+            Binary array (values 0 or 1).
+        n : int
+            Minimum number of consecutive ones required.
+
+        Returns
+        -------
+        int or None
+            Index of the first frame where the streak starts,
+            or None if no such streak exists.
         """
+        arr = np.asarray(arr)
         kernel = np.ones(n)
         conv = np.convolve(arr, kernel, mode='valid')
-        return np.any(conv == n)
+
+        hits = np.where(conv == n)[0]
+
+        if len(hits) > 0:
+            return hits[0]  # first starting index
+        else:
+            return None
     def analyze_NFAT(self, thr = 1.05, n=4, save_outlines=False): 
         """
         Perform full NFAT translocation analysis, including segmentation,
@@ -477,10 +490,14 @@ class NFAT:
             d = self.linked_filt2[self.linked_filt2["particle"] == pid].sort_values("frame").copy()
             higher_1 = d.nuc_cyto_ratio > thr
             # Check whether N/C ratio exceeds threshold for ≥4 consecutive frames
-            if self._has_n_consecutive_ones(higher_1, n):
+            start_frame = self._first_n_consecutive_ones(higher_1, n)
+            if start_frame is not None:
+                true_frame = d["frame"].values[start_frame]*30
                 trans +=1
                 is_trans = 1
-            self.results[pid] = is_trans
+            else:
+                true_frame = None
+            self.results[pid] = [is_trans, true_frame]
             
         return  self.results, self.linked_filt2
 #%% Find all .nd2 files
@@ -498,36 +515,53 @@ for folder in nd2_files:
     print('Processing:', folder)
     results, linked = NFAT(folder).analyze_NFAT(save_outlines=False, thr = 1.1, n = 5)
     results_df = (
-        pd.DataFrame.from_dict(results, orient='index', columns=['translocated'])
-          .rename_axis('cell_id')
-          .reset_index()
-    )
+            pd.DataFrame.from_dict(results, orient='index')
+            .rename(columns={0: 'translocated', 1: 'start_frame'})
+            .rename_axis('cell_id')
+            .reset_index()
+        )
     results_df['folder'] = folder
     all_dfs.append(results_df)
-
+#%%
 all_results = pd.concat(all_dfs, ignore_index=True)
-all_results2 = all_results[['folder', 'cell_id','translocated']]
+all_results2 = all_results[['folder', 'cell_id','translocated', 'start_frame']].copy()
 #%% Calculate proportion of cells that show NFAT translocation
-
 stats = all_results2.groupby('folder')['translocated'].agg(['sum', 'count'])
 stats['prop'] = stats['sum'] / stats['count']
 stats = stats.reset_index()  # Move 'folder' to a column
 stats['expr'] = stats['folder'].str.split(r'\\').str[5] #add expression level
 stats['dil'] = stats['folder'].str.split(r'\\').str[6] # add dilution level
 stats['CAR'] = stats['folder'].str.split(r'\\').str[8] # Add CAR variant
-#%%
+stats.loc[stats['dil'] == '10His-SNAP', 'CAR'] = "10His-SNAP" #Set controls as controls in CAR too
+stats.to_csv(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\nfat_translocation_stats.csv')
+all_results2['expr'] = all_results2['folder'].str.split(r'\\').str[5] #add expression level
+all_results2['dil'] = all_results2['folder'].str.split(r'\\').str[6] # add dilution level
+all_results2['CAR'] = all_results2['folder'].str.split(r'\\').str[8] # Add CAR variant
+all_results2.loc[all_results2['dil'] == '10His-SNAP', 'CAR'] = "10His-SNAP" #Set controls as controls in CAR too
+all_results2.to_csv(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\nfat_translocation.csv')
 
+#%% Plot
 def p_to_text(p):
+    """
+    Convert a p-value into a compact string for plot annotation.
+    """
     if p < 1e-4: return "p<1e-4"
     if p < 1e-3: return "p<1e-3"
     if p < 1e-2: return "p<0.01"
     return f"p={p:.3f}"
 
 def add_sig_bar(ax, x1, x2, y, h, text):
+    """
+    Draw a statistical significance bracket between two x-positions on a plot.
+    Notes
+    -----
+    - Assumes the y-axis is already scaled appropriately.
+    - Does not automatically avoid overlap; vertical stacking must be handled externally.
+    """
     ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=1.5, c='black')
     ax.text((x1+x2)/2, y+h, text, ha='center', va='bottom')
 
-# --- your plot ---
+# Make plot
 fig, ax = plt.subplots(figsize=(8,6))
 sns.boxplot(data=stats, y='prop', x='CAR', hue='dil', showfliers=False, ax=ax)
 sns.stripplot(data=stats, y='prop', x='CAR', color='black', alpha=0.5, jitter=True, ax=ax)
@@ -535,7 +569,7 @@ ax.set_ylabel('Proportion of cells with NFAT translocation')
 ax.set_ylim(0, 1)
 
 
-# --- determine box positions ---
+#  Determine postions of the boxes
 cars = list(stats["CAR"].unique())
 dils = list(stats["dil"].unique())
 
@@ -550,23 +584,20 @@ for i, car in enumerate(cars):
     for j, dil in enumerate(dils):
         positions[(car, dil)] = i + offsets[j]
 
-# --- comparisons you want ---
+# Set list comparisons for stats
 comparisons = []
 
-# CART3Hi vs CART4Hi (CD19 only)
 comparisons.append((("CART3Hi","100xdilutedCD19"),
                     ("CART4Hi","100xdilutedCD19")))
 
-# CART3Lo vs CART4Lo (CD19 only)
 comparisons.append((("CART3Lo","100xdilutedCD19"),
                     ("CART4Lo","100xdilutedCD19")))
 
-# 10His-SNAP vs each CAR (compare SNAP condition only)
 for car in ["CART3Hi","CART4Hi","CART3Lo","CART4Lo"]:
     comparisons.append((("10His-SNAP","10His-SNAP"),
                         (car,"100xdilutedCD19")))
 
-# --- add annotations ---
+#format plot and add stats
 y_base = 0.85
 gap = 0.05
 h = 0.015
@@ -595,4 +626,101 @@ for (g1, g2) in comparisons:
     k += 1
 
 ax.legend(title="dil", bbox_to_anchor=(1.02, 1), loc="upper left")
+plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig3_NFAT.pdf', dpi = 600)
+plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig3_NFAT.png', dpi = 600)
+plt.tight_layout()
+#%%#%% Plot for time
+def p_to_text(p):
+    """
+    Convert a p-value into a compact string for plot annotation.
+    """
+    if p < 1e-4: return "p<1e-4"
+    if p < 1e-3: return "p<1e-3"
+    if p < 1e-2: return "p<0.01"
+    return f"p={p:.3f}"
+
+def add_sig_bar(ax, x1, x2, y, h, text):
+    """
+    Draw a statistical significance bracket between two x-positions on a plot.
+    Notes
+    -----
+    - Assumes the y-axis is already scaled appropriately.
+    - Does not automatically avoid overlap; vertical stacking must be handled externally.
+    """
+    ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=1.5, c='black')
+    ax.text((x1+x2)/2, y+h, text, ha='center', va='bottom')
+
+# Make plot
+fig, ax = plt.subplots(figsize=(8,6))
+sns.boxplot(data=all_results2, y='start_frame', x='CAR', hue='dil', showfliers=False, ax=ax)
+sns.stripplot(data=all_results2, y='start_frame', x='CAR', color='black', alpha=0.5, jitter=True, ax=ax)
+ax.set_ylabel('Time start of NFAT translocation (sec)')
+# ax.set_ylim(0, 1)
+
+
+#  Determine postions of the boxes
+cars = list(stats["CAR"].unique())
+dils = list(stats["dil"].unique())
+
+group_width = 0.8
+step = group_width / len(dils)
+offsets = np.linspace(-group_width/2 + step/2,
+                      group_width/2 - step/2,
+                      len(dils))
+
+positions = {}
+for i, car in enumerate(cars):
+    for j, dil in enumerate(dils):
+        positions[(car, dil)] = i + offsets[j]
+
+# Set list comparisons for stats
+comparisons = []
+
+comparisons.append((("CART3Hi","100xdilutedCD19"),
+                    ("CART4Hi","100xdilutedCD19")))
+
+comparisons.append((("CART3Lo","100xdilutedCD19"),
+                    ("CART4Lo","100xdilutedCD19")))
+
+for car in ["CART3Hi","CART4Hi","CART3Lo","CART4Lo"]:
+    comparisons.append((("10His-SNAP","10His-SNAP"),
+                        (car,"100xdilutedCD19")))
+
+#format plot and add stats
+ymin, ymax = ax.get_ylim()
+yrange = ymax - ymin
+
+y_base = ymax * 0.95          # start near top of plot
+gap = yrange * 0.06           # vertical spacing between brackets
+h = yrange * 0.02 
+k= 0
+
+for (g1, g2) in comparisons:
+
+    car1, dil1 = g1
+    car2, dil2 = g2
+
+    vals1 = all_results2.loc[(all_results2["CAR"]==car1) &
+                         (all_results2["dil"]==dil1),
+                         "start_frame"].dropna().values
+
+    vals2 = all_results2.loc[(all_results2["CAR"]==car2) &
+                         (all_results2["dil"]==dil2),
+                         "start_frame"].dropna().values
+
+    if len(vals1)<2 or len(vals2)<2:
+        continue
+
+    U,p = mannwhitneyu(vals1, vals2)
+
+    x1 = positions[(car1,dil1)]
+    x2 = positions[(car2,dil2)]
+    y = y_base + k*gap
+
+    add_sig_bar(ax, x1, x2, y, h, p_to_text(p))
+    k += 1
+
+ax.legend(title="dil", bbox_to_anchor=(1.02, 1), loc="upper left")
+plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig3_NFAT_time.pdf', dpi = 600)
+plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig3_NFAT_time.png', dpi = 600)
 plt.tight_layout()
