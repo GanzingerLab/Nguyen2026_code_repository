@@ -25,7 +25,7 @@ from tensorflow.keras.callbacks import ReduceLROnPlateau, EarlyStopping
 # =============================================================================
 
 # === Settings ===
-DATA_DIR = r'C:\Users\castrolinares\Data analysis\SPIT_G\Random_forest_mature\V2\DL'
+DATA_DIR = r'C:\Users\castrolinares\Data analysis\SPIT_G\ML_mature\V2\DL'
 IMG_SIZE = (224, 224)       # resized to match MobileNetV2 input
 BATCH_SIZE = 16
 EPOCHS = 20                 # phase 1 (frozen backbone) maximum epochs
