@@ -496,7 +496,7 @@ for root, dirs, files in os.walk(path):
 all_dfs = []
 for folder in nd2_files:
     print('Processing:', folder)
-    results, linked = NFAT(folder).analyze_NFAT(save_outlines=False)
+    results, linked = NFAT(folder).analyze_NFAT(save_outlines=False, thr = 1.1, n = 5)
     results_df = (
         pd.DataFrame.from_dict(results, orient='index', columns=['translocated'])
           .rename_axis('cell_id')
@@ -516,47 +516,83 @@ stats['expr'] = stats['folder'].str.split(r'\\').str[5] #add expression level
 stats['dil'] = stats['folder'].str.split(r'\\').str[6] # add dilution level
 stats['CAR'] = stats['folder'].str.split(r'\\').str[8] # Add CAR variant
 #%%
-stats_or = stats.copy()
-groups = stats.groupby(["CAR", 'expr', 'dil'])["prop"]
-labels = list(groups.groups.keys())
-stats.loc[stats.dil == '10His-SNAP', 'CAR'] = '10His-SNAP'
 
+def p_to_text(p):
+    if p < 1e-4: return "p<1e-4"
+    if p < 1e-3: return "p<1e-3"
+    if p < 1e-2: return "p<0.01"
+    return f"p={p:.3f}"
+
+def add_sig_bar(ax, x1, x2, y, h, text):
+    ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=1.5, c='black')
+    ax.text((x1+x2)/2, y+h, text, ha='center', va='bottom')
+
+# --- your plot ---
 fig, ax = plt.subplots(figsize=(8,6))
-sns.boxplot(data=stats, y='prop', x='CAR', hue= 'dil', showfliers=False)
-sns.stripplot(data=stats, y='prop', x='CAR', color='black', alpha=0.5, jitter=True)
-plt.ylabel('Proportion of cells with NFAT translocation')
-plt.ylim(0,1)
-#%%
+sns.boxplot(data=stats, y='prop', x='CAR', hue='dil', showfliers=False, ax=ax)
+sns.stripplot(data=stats, y='prop', x='CAR', color='black', alpha=0.5, jitter=True, ax=ax)
+ax.set_ylabel('Proportion of cells with NFAT translocation')
+ax.set_ylim(0, 1)
 
 
-pairwise_results = []
+# --- determine box positions ---
+cars = list(stats["CAR"].unique())
+dils = list(stats["dil"].unique())
 
-# unique groups exactly as shown in plot
-groups = stats["CAR"].unique()
+group_width = 0.8
+step = group_width / len(dils)
+offsets = np.linspace(-group_width/2 + step/2,
+                      group_width/2 - step/2,
+                      len(dils))
 
-for g1, g2 in itertools.combinations(groups, 2):
+positions = {}
+for i, car in enumerate(cars):
+    for j, dil in enumerate(dils):
+        positions[(car, dil)] = i + offsets[j]
 
-    vals1 = stats.loc[stats["CAR"] == g1, "prop"].values
-    vals2 = stats.loc[stats["CAR"] == g2, "prop"].values
+# --- comparisons you want ---
+comparisons = []
 
-    if len(vals1) < 2 or len(vals2) < 2:
+# CART3Hi vs CART4Hi (CD19 only)
+comparisons.append((("CART3Hi","100xdilutedCD19"),
+                    ("CART4Hi","100xdilutedCD19")))
+
+# CART3Lo vs CART4Lo (CD19 only)
+comparisons.append((("CART3Lo","100xdilutedCD19"),
+                    ("CART4Lo","100xdilutedCD19")))
+
+# 10His-SNAP vs each CAR (compare SNAP condition only)
+for car in ["CART3Hi","CART4Hi","CART3Lo","CART4Lo"]:
+    comparisons.append((("10His-SNAP","10His-SNAP"),
+                        (car,"100xdilutedCD19")))
+
+# --- add annotations ---
+y_base = 0.85
+gap = 0.05
+h = 0.015
+k = 0
+
+for (g1, g2) in comparisons:
+
+    car1, dil1 = g1
+    car2, dil2 = g2
+
+    vals1 = stats.loc[(stats["CAR"]==car1) &
+                      (stats["dil"]==dil1), "prop"].values
+    vals2 = stats.loc[(stats["CAR"]==car2) &
+                      (stats["dil"]==dil2), "prop"].values
+
+    if len(vals1)<2 or len(vals2)<2:
         continue
 
-    U, p = mannwhitneyu(vals1, vals2, alternative="two-sided")
+    U,p = mannwhitneyu(vals1, vals2)
 
-    pairwise_results.append({
-        "group1": g1,
-        "group2": g2,
-        "n1": len(vals1),
-        "n2": len(vals2),
-        "median1": np.median(vals1),
-        "median2": np.median(vals2),
-        "U_stat": U,
-        "p_value": p
-    })
+    x1 = positions[(car1,dil1)]
+    x2 = positions[(car2,dil2)]
+    y = y_base + k*gap
 
-pairwise_table = pd.DataFrame(pairwise_results)
+    add_sig_bar(ax, x1, x2, y, h, p_to_text(p))
+    k += 1
 
-pairwise_table = pairwise_table.sort_values("p_value").reset_index(drop=True)
-
-pairwise_table[['group1', 'group2', 'p_value']]
+ax.legend(title="dil", bbox_to_anchor=(1.02, 1), loc="upper left")
+plt.tight_layout()
