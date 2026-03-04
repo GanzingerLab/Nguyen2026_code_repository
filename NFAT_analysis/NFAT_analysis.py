@@ -22,7 +22,7 @@ from scipy.ndimage import binary_fill_holes, distance_transform_edt
 from skimage.measure import regionprops_table
 import seaborn as sns
 from scipy.stats import mannwhitneyu
-#%%
+#%% Initialize class with functions for NFAT translocation analysis.
 class NFAT: 
     """
     A class for analyzing NFAT translocation in ND2 image files.
