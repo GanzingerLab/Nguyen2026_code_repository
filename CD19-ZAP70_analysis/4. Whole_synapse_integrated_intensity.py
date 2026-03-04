@@ -73,7 +73,6 @@ def sum_intensity_per_cell(spot_df, cluster_df):
 
     return merged
 
-
 def summarize(df):
     """Per-cell summary statistics, separately for mature vs not-mature frames."""
     return (
@@ -87,7 +86,6 @@ def summarize(df):
               clusters_max=('clusters_norm_sum_int', 'max'),
           )
     )
-
 
 def build_particle_table(int_to_use, clusters_path, particle_label, cluster_file, mature_cells, mature_cells_frame):
     """

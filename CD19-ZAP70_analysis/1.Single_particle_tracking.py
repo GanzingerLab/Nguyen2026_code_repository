@@ -120,7 +120,8 @@ if __name__ == "__main__":
     test4.affine_transform()
     
 #%%STEP 2: Go to imageJ and make manual ROIs with the freehand tool based on the maximum projection image.
-#%%STEP3: 
+#%%STEP3: localize the spots using Picasso, filter spots to be inside manually drawn ROIs, link the spots 
+# to make tracks and colocalize those tracks.
 if __name__ == "__main__":
     test4 = SPIT_Dataset(r'D:\Data\Chi_data\20250801_filtered', settings)
     test4.SPIT_ROI()
