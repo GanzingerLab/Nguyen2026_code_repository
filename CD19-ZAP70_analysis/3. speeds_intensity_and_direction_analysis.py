@@ -1,17 +1,13 @@
 #%%
-# -*- coding: utf-8 -*-
 import os
 from postSPIT import plotting_classes as plc
-import matplotlib.pyplot as plt
 import pandas as pd 
 import numpy as np
 from natsort import natsorted
-import seaborn as sns
 from scipy.ndimage import gaussian_filter1d
 from tqdm import tqdm 
-from matplotlib.lines import Line2D
 import re
-
+from itertools import combinations
 def find_run_folders(path):
     run_pattern = re.compile(r'^Run*') #now Run folders only need to have "Run" in their name
     #and look for all subfolders within path that contain Run in it. 
@@ -364,13 +360,23 @@ def filter_and_compute_stats(tracks, stats, subdf, folder, dt, coloc_col = "colo
     all_timepoints_df = pd.concat(all_timepoints, ignore_index=True)
     return all_results, all_timepoints_df
 
-
-#%%
+def safe_cos(dx, dy, rx, ry):
+    #calculate dot product of the movement vector and the distance to the center vector
+    dot = dx * rx + dy * ry
+    #calculate magnitude of movement vector
+    D = np.hypot(dx, dy)
+    #calculate magnitude of distance to the center vector
+    R = np.hypot(rx, ry)
+    #if the magnitudes are not 0, calculate the dot the angle between the two vectors and return them. 
+    if D == 0 or R == 0:
+        return np.nan, D, R
+    return dot / (D * R), D, R
+#%% Instantaneous speeds, intensities, and directionality paremeters
 tracks_to_analyze = pd.read_csv(r'D:\Data\Chi_data\20250801_filtered\output\cotracks_longer_10frames.csv')
 
 all_results = []
 all_timepoints = []
-# --- Process each run ---
+# Process each run 
 for folder, subdf in tqdm(tracks_to_analyze.groupby("folder")):
     print(f'Analysizng {folder}')
     #get necessary data
@@ -398,3 +404,98 @@ all_results_df = pd.DataFrame(all_results)
 #%%
 all_results_df.to_csv(r'D:\Data\Chi_data\20250801_filtered\output\analysis2026\all_cotracks_radial_velocity_intensity_stats.csv', index=False)
 all_timepoints_df.to_csv(r'D:\Data\Chi_data\20250801_filtered\output\analysis2026\all_cotracks_radial_velocity_intensity_timepoints.csv', index=False)
+#%% per-cotrack phase directionalities directionalities
+tracks_to_analyze = pd.read_csv(r'D:\Data\Chi_data\20250801_filtered\output\cotracks_longer_10frames.csv')
+
+all_results = []
+
+for folder, subdf in tqdm(tracks_to_analyze.groupby("folder")):
+    base = os.path.join(folder, 'cluster_analysis_spots_filtered')
+    tracks = pd.read_csv(os.path.join(base, '638nm_roi_locs_nm_trackpy_ColocsTracks.csv'))
+    stats  = pd.read_hdf(os.path.join(base, '638nm_roi_locs_nm_trackpy_ColocsTracks_stats.hdf'))
+
+    cell_id = stats['cell_id'].iat[0]
+
+    # Only analyze the IDs requested for this folder
+    for track_id in subdf["colocID"].unique():
+        #extract stats from the track
+        st = stats.loc[stats["colocID"] == track_id].iloc[0]
+        #save centroid position in nm
+        cx, cy = (np.array(st["centroid"][0]) * 108)  
+        #save colocalization start and ending frame
+        coloc = st["overlap_t"]
+        start, end = coloc[0], coloc[-1]
+        #get track (frame and position), remvoing possible NaNs
+        tr = tracks.loc[tracks["colocID"] == track_id, ["t", "x_0", "y_0"]].dropna(subset=["x_0", "y_0"]).copy()
+        if tr.empty:
+            continue
+
+        # Make frame the index, for faster indexing
+        tr_by_t = tr.set_index("t")
+
+        # Build the 4 landmark locations: 
+        # loc0:start of the track
+        # loc1:start of the colocalization
+        # loc2:end of the colocalization
+        # loc3:end of the track.
+        try:
+            locs = {
+                "loc0": (tr["x_0"].iat[0],      tr["y_0"].iat[0],      0),
+                "loc1": (tr_by_t.at[start, "x_0"], tr_by_t.at[start, "y_0"], start * 2),
+                "loc2": (tr_by_t.at[end,   "x_0"], tr_by_t.at[end,   "y_0"], end   * 2),
+                "loc3": (tr["x_0"].iat[-1],     tr["y_0"].iat[-1],     tr["t"].iat[-1] * 2),
+            }
+        except KeyError:
+            # start/end not present in the track's t index
+            continue
+        #for each combination of landmark locations
+        for p1, p2 in combinations(locs, 2):
+            #extract positions and frame
+            x1, y1, t1 = locs[p1]
+            x2, y2, t2 = locs[p2]
+            #make net movement vector
+            dx, dy = x2 - x1, y2 - y1
+            #make distance to the center vector
+            rx, ry = cx - x1, cy - y1
+            #calculate the directionality and the magnitude of the vectors. 
+            cos_theta, D, R = safe_cos(dx, dy, rx, ry)
+            # calculate the radial component (i.e. how much of the displacement is toward or away from the center)
+            rad = D * cos_theta if np.isfinite(cos_theta) else np.nan
+            #caluclate time passed 
+            dt = (t2 - t1)
+            #calculate radial speed. 
+            rad_velocity = rad / dt if dt != 0 else np.nan
+            # add result to results
+            all_results.append({
+                "run": folder,
+                "cell": cell_id,
+                "colocID": track_id,
+                "from": p1,
+                "to": p2,
+                "dist_to_center": R,
+                "directionality": cos_theta,
+                "moved_distance": D,
+                "radial_component": rad,
+                "radial_velocity": rad_velocity,
+            })
+#transform the results into a dataframe 
+directionalities = pd.DataFrame(all_results)
+
+#add metadate 
+directionalities["cond"] = directionalities["run"].astype(str).apply(lambda p: os.path.normpath(p).split(os.sep)[5])
+#add transitions
+transition_pairs = {("loc0", "loc1"), ("loc1", "loc2"), ("loc2", "loc3")}
+pair = list(zip(directionalities["from"], directionalities["to"]))
+#and keep only relevant transitions
+directionalities["transition"] = np.where(
+    pd.Series(pair).isin(transition_pairs),
+    directionalities["from"] + "-" + directionalities["to"],
+    pd.NA
+)
+#add maturation information. 
+df_raw = pd.read_csv(r'D:\Data\Chi_data\20250801_filtered\output\maturation_count_withDil.csv')
+directionalities_maturation = directionalities.merge(
+    df_raw[["run", "cell", "category"]],
+    on=["run", "cell"],
+    how="left"
+)
