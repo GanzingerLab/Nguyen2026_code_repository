@@ -3,7 +3,6 @@ import os
 from postSPIT import plotting_classes as plc
 import pandas as pd 
 import numpy as np
-from natsort import natsorted
 from scipy.ndimage import gaussian_filter1d
 from tqdm import tqdm 
 import re
