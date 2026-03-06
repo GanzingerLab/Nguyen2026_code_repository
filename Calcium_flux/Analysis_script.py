@@ -124,10 +124,14 @@ print(
 df = utils.tracks_split_by_regression(df,frame_col='FRAME_SYNC',ycol='SMOOTH_NORM_MEAN_INTENSITY_CH1', peak_col='PEAK', rel_drop_thresh=0.2, 
                                r2_thresh=0.5,slope_thresh=threshold_value_final)
 
-df.to_hdf(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\Ca_flux.hdf', key = 'df')
+# df.to_hdf(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\Ca_flux.hdf', key = 'df')
+# peaks_df.to_hdf(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\Ca_flux_peaks_df.hdf', key = 'df')
 
-# %% Final plots 
+# %% Load hdf files to avoid rerunning the analysis 
+df = pd.read_hdf(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\Ca_flux.hdf')
+peaks_df = pd.read_hdf(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\Ca_flux_peaks_df.hdf')
 
+#%% Final plots 
 # % of cells in each category, and % of cells peaking. 
 fig, ax = plt.subplots(figsize=(6, 4))
 summary = utils.plot_cell_status_bars_percent(df, colors=('yellowgreen', 'wheat', 'gray'), ax=ax)
@@ -145,7 +149,7 @@ data = [peaks_df.loc[peaks_df['DATASET'] == ds, 'Prominence'].dropna() for ds in
 # Make boxplot
 bp = ax.boxplot(data, labels=datasets, showfliers=False)
 
-# Overlay individual points (optional)
+# Overlay individual points
 for i, y in enumerate(data, start=1):
     x = np.random.normal(i, 0.05, size=len(y))  # jitter for visibility
     ax.scatter(x, y, alpha=0.6, s=10, edgecolor='k', linewidths=0.3)
@@ -193,7 +197,7 @@ ax.tick_params(axis='x', labelrotation=90)
 ax.grid(axis='y', linestyle=':', alpha=0.5)
 plt.tight_layout()
 
-plt.savefig(r'D:\Data\Chi_data\2. Ca flux\selfmade_chamber\time_first_peak_box.pdf', dpi = 600, bbox_inches='tight')
+plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig3_Ca_time_first_peak_box.png', dpi = 600, bbox_inches='tight')
 plt.show()
 
 # %% Same but violin plot

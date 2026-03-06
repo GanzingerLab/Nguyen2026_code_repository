@@ -1,19 +1,9 @@
-# -*- coding: utf-8 -*-
+#%%
 import nd2
 import os
 import matplotlib.pyplot as plt
 import numpy as np
-import cv2
-from skimage import io, filters, measure, morphology, segmentation, color
-from skimage.morphology import (
-    binary_closing,
-    binary_opening,
-    remove_small_holes,
-    remove_small_objects, 
-    binary_dilation, 
-    binary_erosion, 
-    isotropic_closing
-)
+from skimage import  filters
 from scipy.optimize import curve_fit
 import tifffile
 import pandas as pd
@@ -23,72 +13,7 @@ from skimage.draw import disk
 from matplotlib.patches import Circle
 import trackpy as tp
 from glob import glob
-import re
 
-def phansalkar_threshold(image_stack, radius=15, k=0.25, p=2.0, q=10.0):
-    """
-        Apply Phansalkar local thresholding per frame.
-    
-        Parameters
-        ----------
-        image_stack : np.ndarray
-            2D or 3D array of images (frames, height, width).
-        radius : int, optional
-            Local window radius, by default 15.
-        k : float, optional
-            Phansalkar parameter k, by default 0.25.
-        p : float, optional
-            Phansalkar parameter p, by default 2.0.
-        q : float, optional
-            Phansalkar parameter q, by default 10.0.
-    
-        Returns
-        -------
-        np.ndarray
-            Binary thresholded image or stack of same shape.
-"""
-    window_size = (radius * 2) + 1
-
-    def threshold_single(image):
-        image = image / np.max(image) if np.max(image) > 0 else image
-        mean = cv2.blur(image, (window_size, window_size))
-        mean_sq = cv2.blur(image**2, (window_size, window_size))
-        std = np.sqrt(mean_sq - mean**2)
-        threshold = mean * (1 + p * np.exp(-q * mean) + k * ((std / 0.5) - 1))
-        return image > threshold
-
-    if image_stack.ndim == 2:
-        return threshold_single(image_stack)
-    elif image_stack.ndim == 3:
-        # Process each frame independently and stack results
-        binary_stack = np.zeros_like(image_stack, dtype=bool)
-        for i in range(image_stack.shape[0]):
-            binary_stack[i] = threshold_single(image_stack[i])
-        return binary_stack
-    else:
-        raise ValueError("Input must be 2D or 3D numpy array")
-def remove_small_objects_per_frame(stack, min_size=100, connectivity=1):
-    """
-        Remove small objects from each frame of a binary stack.
-    
-        Parameters
-        ----------
-        stack : np.ndarray
-            Binary image stack (frames, height, width).
-        min_size : int, optional
-            Minimum object size in pixels to keep, by default 100.
-        connectivity : int, optional
-            Connectivity for object removal, by default 1.
-    
-        Returns
-        -------
-        np.ndarray
-            Cleaned binary stack.
-"""
-    cleaned_stack = np.zeros_like(stack, dtype=bool)
-    for i in range(stack.shape[0]):  # assuming frames on axis 0
-        cleaned_stack[i] = remove_small_objects(stack[i], min_size=min_size, connectivity=connectivity)
-    return cleaned_stack
 def open_BF_image(file_path, save_stack = False):    
     def poly_func(coords, a, b, c, d, e, f):
         x, y = coords
@@ -157,54 +82,9 @@ def open_BF_image(file_path, save_stack = False):
 
     return inv_stack, fluo
 
-def find_skip_regions(inv_stack): 
-    blurred_stack = np.array([filters.gaussian(frame, sigma=2) for frame in inv_stack])
-    threshold = filters.threshold_triangle(blurred_stack)
-    binary = blurred_stack > threshold
-    binary = filters.gaussian(binary, sigma=4)>0.1
-    return binary_dilation(binary)
-
-
-def filter_tracks(df, binary, scale_factor = 0.618050277012301):
-    filtered_tracks = []
-    for frame_idx in range(len(binary)):
-        frame_tracks = df[df['frame'] == frame_idx]
-        binary_mask = binary[frame_idx]
-        
-        filtered_positions = frame_tracks[
-            ~binary_mask[
-                (frame_tracks['y'] / scale_factor).astype(int),
-                (frame_tracks['x'] / scale_factor).astype(int)
-            ]
-        ]
-        
-        filtered_tracks.append(filtered_positions)
-    
-    return pd.concat(filtered_tracks)
-
-
-def filter_tracks2(file, binary, scale_factor = 0.618050277012301):
-    df = pd.read_csv(file, index_col=False, low_memory=False)
-
-    filtered_tracks = []
-    for frame_idx in range(len(binary)):
-        frame_tracks = df[df['FRAME'] == frame_idx]
-        binary_mask = binary[frame_idx]
-        
-        filtered_positions = frame_tracks[
-            ~binary_mask[
-                (frame_tracks['POSITION_Y'] / scale_factor).astype(int),
-                (frame_tracks['POSITION_X'] / scale_factor).astype(int)
-            ]
-        ]
-        
-        filtered_tracks.append(filtered_positions)
-    
-    return pd.concat(filtered_tracks)
-
 def find_cells(fluo, diameter = 12, below_range= 0.8, ab_range= 1.15, threshold = 3, frame_int = 3.0, px2um = 1.618, plot = False):
     D = diameter *px2um #from um to px
-    sigma_target = D / 2.828   # Transform diameter into radious of a gaussian: D / (2*sqrt(2))
+    sigma_target = D / 2.828   # Transform diameter into radius of a gaussian: D / (2*sqrt(2))
     min_sigma = sigma_target*below_range
     max_sigma = sigma_target*ab_range
     
@@ -212,7 +92,7 @@ def find_cells(fluo, diameter = 12, below_range= 0.8, ab_range= 1.15, threshold 
     spot_counter = 0  # unique spot IDs
     for frame in range(0, 301):
         img = fluo[frame]
-    
+        # find blobs with difference of gaussian. 
         blobs = blob_dog(img, min_sigma=min_sigma, max_sigma=max_sigma, sigma_ratio=1.05, threshold=threshold)
         if plot:
             fig, ax = plt.subplots(figsize=(6, 6))
@@ -259,10 +139,10 @@ def track_cells(features, search_range = 8, memory=2, px2um = 1.618, frame_int=3
     tracks = tp.filter_stubs(tracks, threshold=300*0.1).reset_index(drop=True)
     
     
-    # Helper: safe multiply (pixels -> microns)
+    # pixels -> microns
     def px_to_um(arr): return np.asarray(arr, dtype=float) * px2um
     
-    # Build TrackMate-like DataFrame
+    # Build TrackMate-like DataFrame - for compatibility with Ca2+ analysis from the lab
     tm_like = pd.DataFrame({
         "LABEL":               tracks["spot_id"].apply(lambda i: f"ID{i}"),
         "ID":                  tracks["spot_id"],                               # Spot ID
@@ -288,7 +168,7 @@ def track_cells(features, search_range = 8, memory=2, px2um = 1.618, frame_int=3
     return tm_like
 
 def save_tracks(tm_like, path, output_name = 'tracks_filtered.csv'):
-    # (Optional) order the columns exactly as your sample
+    # (Optional) order the columns 
     tm_cols = ["LABEL","ID","TRACK_ID","QUALITY","POSITION_X","POSITION_Y","POSITION_Z",
                "POSITION_T","FRAME","RADIUS","VISIBILITY","MANUAL_SPOT_COLOR",
                "MEAN_INTENSITY_CH1","MEDIAN_INTENSITY_CH1","MIN_INTENSITY_CH1","MAX_INTENSITY_CH1",
@@ -320,9 +200,7 @@ def save_tracks(tm_like, path, output_name = 'tracks_filtered.csv'):
         writer.writerow(header_row3)
     tm_like.to_csv(out_path, sep=",", mode="a", index=False)
     print(f"Saved: {out_path}")
-# %%
-
-
+# %%Find paths
 path = r'D:\Data\Chi_data\2. Ca flux'  # Root directory to scan
 nd2_dirs = []
 
@@ -333,35 +211,21 @@ for root, dirs, files in os.walk(path):
 del dirs, files, root
 
 # %%Finding cells
-
-
-
 px2um = 1.618    # px per um
 frame_int = 3.0      # seconds per frame (set if you want POSITION_T)
 expected_diameter = 12 #in um
 
-search_range = 15
-memory = 8
+search_range = 15 #for tracking
+memory = 8 # for tracking
 
-for i in nd2_dirs:
-    print(i)
-    file = os.path.join(i, 'tracks_unfiltered.csv')
-    if os.path.isfile(file):
-        print(f'skipping {file}') 
-        continue
-    else:
-        file = glob(i + '/**.nd2', recursive=True)[0] 
-        path = os.path.dirname(file)
-        inv_stack, fluo = open_BF_image(file, save_stack=False)
-        # binary = find_skip_regions(inv_stack[0:301])
-        cells_filtered = find_cells(fluo[0:301], diameter = expected_diameter, px2um = px2um, frame_int=frame_int, plot = False)
-        # cells_filtered = filter_tracks(cells, binary, 1)
-        tracks = track_cells(cells_filtered, search_range = search_range, memory = memory)
-        save_tracks(tracks, path, output_name = 'tracks_unfiltered.csv')
-# %%
-file = r"D:\Data\Chi_data\2. Ca flux\selfmade_chamber\Low expression CAR\3000xdilutedCD19\20250716\CART3Lo\R2\R2.nd2"
-
-inv_stack, fluo = open_BF_image(file, save_stack=False)
-binary = find_skip_regions(inv_stack)
-plt.imshow(fluo[300])
-plt.imshow(binary[300], alpha = 0.5)
+for i in nd2_dirs[0:1]:
+    file = glob(i + '/**.nd2', recursive=True)[0] 
+    path = os.path.dirname(file)
+    #open images
+    inv_stack, fluo = open_BF_image(file, save_stack=False)
+    #find cells in the first 300 rames
+    cells_filtered = find_cells(fluo[0:301], diameter = expected_diameter, px2um = px2um, frame_int=frame_int, plot = False)
+    #tracks the cells
+    tracks = track_cells(cells_filtered, search_range = search_range, memory = memory)
+    #save the tracks for analysis in Analysis_script.py
+    # save_tracks(tracks, path, output_name = 'tracks_unfiltered.csv')
