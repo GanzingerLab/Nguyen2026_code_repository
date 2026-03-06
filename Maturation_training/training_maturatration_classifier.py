@@ -45,7 +45,7 @@ def load_dataset(data_dir, class_names):
                 labels.append(idx)
     return image_paths, labels
 
-# === Preprocess grayscale → RGB ===
+# === Preprocess ===
 def preprocess_grayscale_to_rgb(img):
     """
     Scale 12-bit grayscale images to [0, 1] and replicate to 3 channels.
@@ -153,7 +153,7 @@ val_generator = GrayscaleToRGBDataGenerator(
 )
 
 # === Build model ===
-# Transfer learning backbone (ImageNet-pretrained); initial phase trains only the new head
+# Transfer learning backbone.
 base_model = MobileNetV2(input_shape=IMG_SIZE + (3,), include_top=False, weights='imagenet')
 base_model.trainable = False
 
@@ -174,7 +174,7 @@ METRICS = [
 ]
 
 # === Callbacks ===
-# Reduce learning rate when validation loss plateaus; stop early and restore best weights
+# Reduce learning rate when validation loss plateaus, stop early and restore best weights
 reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=8, verbose=1, min_lr=1e-5)
 early_stop = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
 
