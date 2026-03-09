@@ -1835,3 +1835,15 @@ plt.tight_layout()
 # plt.savefig(rf'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig1_intensity_maturation_{name[col_to_plot]}_LowExp.pdf', dpi=600)
 # plt.savefig(rf'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig1_intensity_maturation_{name[col_to_plot]}_LowExp.png', dpi=600)
 plt.show()
+#%% Colocalization and intensity example 
+#D:\Data\Chi_data\20250801_filtered\output\CART4 CAT Low aff Low exp\100xdilutedCD19\20240826_142xdilutedCD19\R1_cont\Run00002 - colocID 9
+# cIDs: 7 and 20181
+cID = 218
+example_run = ta.Single_tracked_folder(
+    r'D:\Data\Chi_data\20250801_filtered\output\CART4 CAT Low aff Low exp\100xdilutedCD19\20240826_142xdilutedCD19\R1_cont\Run00002'
+).open_files()
+a = example_run.stats0
+c = example_run.plot_tracks([cID])
+# plt.show()
+# c.save_plot(rf'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig2_Example_track_CoLocalizationID{cID}.png', dpi=600)
+# c.save_plot(rf'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig2_Example_track_CoLocalizationID{cID}.pdf', dpi=600)
