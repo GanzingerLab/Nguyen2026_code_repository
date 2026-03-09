@@ -1,6 +1,6 @@
 #%%
 import os
-from postSPIT import plotting_classes as plc
+from postSPIT import tirf_analysis as ta
 import pandas as pd 
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
@@ -450,7 +450,7 @@ all_timepoints = []
 for folder, subdf in tqdm(tracks_to_analyze.groupby("folder")):
     print(f'Analysizng {folder}')
     #get necessary data
-    run = plc.Combined_analysis(folder, ch0_hint='638nm', ch1_hint='488nm')
+    run = ta.Combined_analysis(folder, ch0_hint='638nm', ch1_hint='488nm')
     tracks = run.cotracks_outside_clusters
     stats = run.cotracks_outside_clusters_stats
     ch0 = run.tracked.ch0

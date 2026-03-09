@@ -1,15 +1,12 @@
 #%%
 import os
-from postSPIT import plotting_classes as plc
-import matplotlib.pyplot as plt
+from postSPIT import tirf_analysis as ta
 import pandas as pd 
-import numpy as np
-from natsort import natsorted
 from tensorflow.keras.models import load_model
 
 #%%
 #load the object to run the analysis for all FOV within a folder. Ch0 is CD19, Ch1 is ZAP70.  
-data = plc.Dataset_combined_analysis(r'D:\Data\Chi_data\20250801_filtered')
+data = ta.Dataset_combined_analysis(r'D:\Data\Chi_data\20250801_filtered')
 #Runs combine_spots_clusters. This will:
 # - run cluster detection anad analysis if it has not been done. 
 # - Excludes spots detected by SPIT within the clusters. 
