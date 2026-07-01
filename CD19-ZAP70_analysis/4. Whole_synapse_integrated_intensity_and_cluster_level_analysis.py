@@ -4,6 +4,9 @@ import json
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from postSPIT import tirf_analysis as ta
+from glob import glob
+from spit import tools
 # %% 
 SPOT_BOX_SIZE = 3
 SPOT_AREA = SPOT_BOX_SIZE ** 2
@@ -113,7 +116,24 @@ def build_particle_table(int_to_use, clusters_path, particle_label, cluster_file
     # Per-cell summary
     return summarize(all_frames).copy()
 
+def get_time_interval(folder):
+    # Extract dt (frame interval) from result.txt
+    result_files = glob(os.path.join(folder, "*result.txt"))
+    if not result_files:
+        raise FileNotFoundError("No result.txt file found in the folder.")
+    with open(result_files[0], 'r') as f:
+        resultLines = f.readlines()
 
+    if tools.find_string(resultLines, 'Interval'): 
+        interval = tools.find_string(resultLines, 'Interval').split(":")[-1].strip()
+        if interval.split(" ")[-1] == 'sec':
+            dt = 1.0 * float(interval.split(" ")[0])
+        elif interval.split(" ")[-1] == 'ms':
+            dt = 0.001 * float(interval.split(" ")[0])
+    else:
+        dtStr = tools.find_string(resultLines, 'Camera Exposure')[17:-1]
+        dt = 0.001 * float((''.join(c for c in dtStr if (c.isdigit() or c == '.'))))
+    return dt
 # %% Load dataset + input tables
 
 #obtain experiment paths
@@ -234,3 +254,92 @@ a_final_result.to_csv(
     r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\intensity_maturation_summary.csv',
     index=False
 )
+
+#%%summarize results for cluster level analysis
+a = ta.Dataset_combined_analysis(PATH)
+run_paths = a.run_paths
+
+result = []
+
+for i in tqdm(run_paths):
+
+    mature_path = os.path.join(i, 'maturation_analysis')
+    cluster_and_spots_path = os.path.join(i, 'cluster_analysis_spots_filtered')
+    clusters_path = os.path.join(i, 'cluster_analysis')
+
+    maturation_json = os.path.join(mature_path, "maturation__488nm.json")
+
+    if not os.path.exists(maturation_json):
+        continue
+
+    with open(maturation_json, "r") as f:
+        maturation = pd.DataFrame(json.load(f))
+
+    mature_cells = list(maturation[maturation.category == 1]['cell'])
+    immature_cells = list(maturation[maturation.category == 0]['cell'])
+
+    try:
+
+        dt = get_time_interval(i)
+
+        clusters_cd_stats = pd.read_csv(
+            os.path.join(cluster_and_spots_path,
+                         '638nm_clusters_and_spots_stats.csv')
+        )
+
+        if mature_cells:
+
+            mature_stats = clusters_cd_stats[
+                clusters_cd_stats.cell_id.isin(mature_cells)
+            ]
+
+            for cell_id, group in mature_stats.groupby('cell_id'):
+
+                mature_frame = maturation.loc[
+                    maturation.cell == cell_id,
+                    'crossing_frame'
+                ].iloc[0]
+
+                for stage, condition in [
+                    ('prematuration', group.frame < mature_frame),
+                    ('postmaturation', group.frame >= mature_frame)
+                ]:
+
+                    filtered = group[condition]
+
+                    if not filtered.empty:
+                        row = filtered.mean(numeric_only=True)
+                    else:
+                        row = pd.Series(dtype=float)
+
+                    row['cell_id'] = cell_id
+                    row['maturation_stage'] = stage
+                    row['run'] = i
+
+                    result.append(row)
+
+        if immature_cells:
+
+            immature_stats = clusters_cd_stats[
+                clusters_cd_stats.cell_id.isin(immature_cells)
+            ]
+
+            for cell_id, group in immature_stats.groupby('cell_id'):
+
+                row = group.mean(numeric_only=True)
+
+                row['cell_id'] = cell_id
+                row['maturation_stage'] = 'immature'
+                row['run'] = i
+
+                result.append(row)
+
+    except Exception as e:
+        print(f'{i} failed: {e}')
+
+final_result = pd.DataFrame(result)
+final_result = final_result.drop(columns=['frame'])
+final_result.to_csv(
+    r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\cell_level_analysis.csv', 
+    index=False
+    )
