@@ -12,6 +12,7 @@ import csv
 from skimage.draw import disk
 from matplotlib.patches import Circle
 import trackpy as tp
+
 from glob import glob
 
 def open_BF_image(file_path, save_stack = False):    
@@ -82,7 +83,7 @@ def open_BF_image(file_path, save_stack = False):
 
     return inv_stack, fluo
 
-def find_cells(fluo, diameter = 12, below_range= 0.8, ab_range= 1.15, threshold = 3, frame_int = 3.0, px2um = 1.618, plot = False):
+def find_cells(fluo, diameter = 12, below_range= 0.8, ab_range= 1.15, threshold = 3, frame_int = 3.0, px2um = 1.618, plot = False, until = 301):
     D = diameter *px2um #from um to px
     sigma_target = D / 2.828   # Transform diameter into radius of a gaussian: D / (2*sqrt(2))
     min_sigma = sigma_target*below_range
@@ -90,7 +91,7 @@ def find_cells(fluo, diameter = 12, below_range= 0.8, ab_range= 1.15, threshold 
     
     rows = []
     spot_counter = 0  # unique spot IDs
-    for frame in range(0, 301):
+    for frame in range(0, until):
         img = fluo[frame]
         # find blobs with difference of gaussian. 
         blobs = blob_dog(img, min_sigma=min_sigma, max_sigma=max_sigma, sigma_ratio=1.05, threshold=threshold)
@@ -228,4 +229,33 @@ for i in nd2_dirs[0:1]:
     #tracks the cells
     tracks = track_cells(cells_filtered, search_range = search_range, memory = memory)
     #save the tracks for analysis in Analysis_script.py
-    # save_tracks(tracks, path, output_name = 'tracks_unfiltered.csv')
+    save_tracks(tracks, path, output_name = 'tracks_unfiltered.csv')
+#%%Plot example
+px2um = 1.618
+ref_t = 318
+folder = r"\\sun\ganzinger\project-folder\10 CART Chi\6. All data\2. Ca flux\8well_chamber\High expression CAR\100xdilutedCD19\20250205\CART3Hi\R2"
+nd2_path = os.path.join(folder, "R2.nd2")
+tracks_path = os.path.join(folder, "tracks_unfiltered.csv")
+
+inv_stack, fluo = open_BF_image(file, save_stack=False)
+
+tracks = pd.read_csv(tracks_path, header=0, skiprows=[1, 2, 3])
+cols = ["FRAME", "POSITION_X", "POSITION_Y", "RADIUS"]
+tracks[cols] = tracks[cols].apply(pd.to_numeric, errors="coerce")
+
+tracks = tracks.dropna(subset=cols)
+df = tracks.loc[tracks["FRAME"] == ref_t]
+
+x = df["POSITION_X"].to_numpy(float) / px2um
+y = df["POSITION_Y"].to_numpy(float) / px2um
+r = df["RADIUS"].to_numpy(float) * px2um
+
+
+fig, ax = plt.subplots(figsize=(7, 7))
+ax.imshow(fluo[ref_t], cmap="gray", vmin=0, vmax=2500)
+for xi, yi, ri in zip(x, y, r): 
+    ax.add_patch(Circle((xi, yi), ri, fill=False, edgecolor="red", linewidth=1))
+ax.axis("off")
+fig.savefig(os.path.join(folder, f"cell_detection_frame{ref_t+1}.pdf"), dpi=600, bbox_inches="tight", pad_inches=0)
+plt.show()
+
