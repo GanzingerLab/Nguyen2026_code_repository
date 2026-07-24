@@ -1,18 +1,26 @@
 #%%
 import pandas as pd
 import seaborn as sns
+
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
 from matplotlib.lines import Line2D
 from postSPIT import tirf_analysis as ta
+from tqdm import tqdm
+from matplotlib.colors import LinearSegmentedColormap
+from scipy.stats import mannwhitneyu
 
-#%% 
+
+
+#%% Constants and helper functions
+SAVE_FOLDER = r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\20260421_with_intermediate'
 DIL_GROUP_MAP = {
     "50xdilutedCD19": "dense",
     "100xdilutedCD19": "dense",
     "500xdilutedCD19": "intermediate",
     "1000xdilutedCD19": "intermediate",
+    "1500xdilutedCD19": "intermediate", 
     "3000xdilutedCD19": "sparse",
     "6000xdilutedCD19": "sparse",
 }
@@ -207,7 +215,7 @@ def expand_tuple_column(df, col="tmp", names=("median", "ci_low", "ci_high")):
     return df.drop(columns=[col])
 
 #%% Maturarion count plot - change expression on the first line
-expression = "Low exp"
+expression = "High exp"
 # Open the input data.
 df_raw = pd.read_csv(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\maturation_count_withDil.csv')
 raw = df_raw.copy()
@@ -232,40 +240,62 @@ totals = (
     counts.groupby(["cart", "dil_group"], as_index=False)["n"]
           .sum()
 )
+counts["se"] = np.sqrt(
+    counts["proportion"] * (1 - counts["proportion"]) /
+    counts.groupby(["cart", "dil_group"])["n"].transform("sum")
+)
 
 # Build the plot.
 fig, ax = plt.subplots(figsize=(8, 5))
 
-group_order = ["sparse", "dense"]
+group_order = ["sparse","intermediate", "dense"]
 cart_order = ["CART3", "CART4"]
 
 x = np.arange(len(group_order))
 width = 0.35
 offsets = {"CART3": -width/2, "CART4": +width/2}
+offsets_mature = {"never matures": -0.05, "matures": 0, "starts mature": 0.05}
 
 for cart in cart_order:
-    #filter
+    # Filter.
     sub = counts[counts["cart"] == cart]
-    #counts for the annotation
+
+    # Counts for the annotation.
     sub_tot = (
         totals[totals["cart"] == cart]
         .set_index("dil_group")
         .reindex(group_order)
     )
-    #make grouping table 
+
+    # Proportion table.
     pivot = (
         sub.pivot(index="dil_group", columns="category_label", values="proportion")
            .fillna(0)
            .reindex(group_order)
            .reindex(columns=CATEGORY_ORDER_ALL)
+           .fillna(0)
+    )
+
+    # Standard error table.
+    pivot_se = (
+        sub.pivot(index="dil_group", columns="category_label", values="se")
+           .fillna(0)
+           .reindex(group_order)
+           .reindex(columns=CATEGORY_ORDER_ALL)
+           .fillna(0)
     )
 
     bottoms = np.zeros(len(group_order))
 
     for cat in ['matures', 'starts mature', 'never matures']:
         vals = pivot[cat].values
+        ses = pivot_se[cat].values
+
+        bar_x = x + offsets[cart]
+        bar_y = bottoms + vals
+
         ax.bar(
-            x + offsets[cart],
+            bar_x,
             vals,
             width=width,
             bottom=bottoms,
@@ -274,17 +304,29 @@ for cart in cart_order:
             linewidth=0.4,
             label=cat if cart == "CART3" else None
         )
+
+        ax.errorbar(
+            bar_x + offsets_mature[cat],
+            bar_y,
+            yerr=ses,
+            fmt="none",
+            ecolor="black",
+            elinewidth=0.8,
+            capsize=3,
+            capthick=0.8
+        )
+
         bottoms += vals
 
     # Add the CAR label and sample size above each bar.
     for i, dg in enumerate(group_order):
         n = sub_tot.loc[dg, "n"] if dg in sub_tot.index else np.nan
+
         if pd.notna(n):
             ax.text(
                 x[i] + offsets[cart],
                 1.05,
-                f"{cart}\nn={int(n)}", # Show CAR type and sample size.
-                # f"{cart}", # Alternative label showing only the CAR type.
+                f"{cart}\nn={int(n)}",
                 ha="center",
                 va="bottom",
                 fontsize=9,
@@ -299,9 +341,13 @@ ax.set_ylim(0, 1.15)
 
 ax.legend(title="Maturation category", bbox_to_anchor=(1.02, 0.5), loc="center left")
 
+counts.to_csv(os.path.join(SAVE_FOLDER, f'Fig1_maturation_count_proportions_{expression}_withERROR.csv'), index=False)
 plt.tight_layout()
-# plt.savefig(r'D:\Data\Chi_data\20250801_filtered\output\analysis2026\Fig1_maturation_count_LowExp.pdf', dpi=600)
+plt.savefig(os.path.join(SAVE_FOLDER, f'Fig1_maturation_count_proportions_{expression}_withERROR.pdf'), dpi=600)
+plt.savefig(os.path.join(SAVE_FOLDER, f'Fig1_maturation_count_proportions_{expression}_withERROR.png'), dpi=600)
 plt.show()
+
+
 
 
 #%%Directionality plot - change expression on the first line
@@ -311,7 +357,7 @@ plt.show()
 # Uncertainty is shown with nonparametric bootstrap confidence intervals
 # based on 5000 resamples, which works well for bounded and potentially skewed data.
 # See: http://staff.ustc.edu.cn/~zwp/teach/Stat-Comp/Efron_Bootstrap_CIs.pdf
-expression = "Low exp"
+expression = "High exp"
 ycol = "directionality"
 
 directionalities_maturation = pd.read_csv(
@@ -330,7 +376,7 @@ plot_df = add_common_columns(plot_df, condition_col="cond", run_col="run", categ
 plot_df = plot_df[plot_df["expr"] == expression]
 
 # Exclude the intermediate dilution group.
-plot_df = plot_df[plot_df["dil_group"] != "intermediate"].copy()
+# plot_df = plot_df[plot_df["dil_group"] != "intermediate"].copy()
 # group and make plotting table 
 summary_wide = (
     plot_df.groupby(["cart", "transition", "category"])[ycol]
@@ -399,17 +445,17 @@ g.map_dataframe(plot_points_with_ci)
 
 # Add one legend for the full figure.
 g.add_legend(title="category", label_order=CATEGORY_ORDER_ALL)
-
+summary_wide.to_csv(os.path.join(SAVE_FOLDER, f'Fig2_directionality_{expression}.csv'), index=False)
 # Use simple facet titles.
 g.set_titles(col_template="{col_name}")
 plt.tight_layout()
-# plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig1_directionality_HighExp.png', dpi=600)
-# plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig1_directionality_HighExp.pdf', dpi=600)
+plt.savefig(os.path.join(SAVE_FOLDER, f'Fig2_directionality_{expression}.png'), dpi=600)
+plt.savefig(os.path.join(SAVE_FOLDER, f'Fig2_directionality_{expression}.pdf'), dpi=600)
 plt.show()
 
 
-#%% Directionality difference: permutatin test around 0 of the per-track difference of directionality
-expression = "Low exp"
+#%% Directionality difference: permutation test around 0 of the per-track difference of directionality
+expression = "High exp"
 ycol = "directionality"
 
 directionalities_maturation = pd.read_csv(
@@ -428,7 +474,7 @@ plot_df = add_common_columns(plot_df, condition_col="cond", run_col="run", categ
 plot_df = plot_df[plot_df["expr"] == expression]
 
 # Exclude the intermediate dilution group.
-plot_df = plot_df[plot_df["dil_group"] != "intermediate"].copy()
+# plot_df = plot_df[plot_df["dil_group"] != "intermediate"].copy()
 
 # Calculate difference in directionality between during (loc1-loc2) and before localization (loc0-loc1)
 needed_transitions = ["loc0-loc1", "loc1-loc2"]
@@ -478,8 +524,8 @@ summary_delta = summary_delta.merge(pvals, on=["cart", "category_label"], how="l
 summary_delta["transition"] = "Δ (loc1-loc2 − loc0-loc1)"
 
 # Plot the delta panel using the same visual style as above.
-order = ["ΔDirectionality)"]
-
+order = summary_delta["transition"].dropna().unique().tolist()
+hue_order = CATEGORY_ORDER_ALL
 def plot_points_with_ci_delta(data, **kws):
     ax = plt.gca()
 
@@ -542,19 +588,21 @@ g = sns.FacetGrid(
 g.map_dataframe(plot_points_with_ci_delta)
 g.add_legend(title="category", label_order=hue_order)
 g.set_titles(col_template="{col_name}")
+
+summary_delta.to_csv(os.path.join(SAVE_FOLDER, f'Fig2_directionalityDIFF_{expression}.csv'), index=False)
 plt.tight_layout()
-# plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig1_directionalityDIFF_HighExp.png',dpi=600)
-# plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig1_directionalityDIFF_HighExp.pdf',dpi=600)
+plt.savefig(os.path.join(SAVE_FOLDER, f'Fig2_directionalityDIFF_{expression}.png'), dpi=600)
+plt.savefig(os.path.join(SAVE_FOLDER, f'Fig2_directionalityDIFF_{expression}.pdf'), dpi=600)
 plt.show()
 
 
 #%%velocities per maturation - Welch t-test
-expression = "Low exp"
-particle = 'Zap70'
+expression = "High exp"
+particle = 'CD19'
 
 # Load the tables and keep the same cleaning steps as before.
 velocities = pd.read_csv(
-    r'D:\Data\Chi_data\20250801_filtered\output\analysis2026\analysis_output\all_cotracks_velocities&directionality_correctedtime.csv'
+    r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\all_cotracks_velocities&directionality_correctedtime.csv'
 )
 velocities_stats = pd.read_csv(
     r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\all_cotracks_velocities&directionality_stats_correctedtime.csv'
@@ -579,7 +627,7 @@ plot_df = velocities_means_maturation[
     (velocities_means_maturation["expr"] == expression)
     & (velocities_means_maturation["category"] < 2)
     & (velocities_means_maturation["particle"] == particle)
-    & (velocities_means_maturation["dil_group"] != "intermediate")
+    # & (velocities_means_maturation["dil_group"] != "intermediate")
 ].copy()
 
 ycol = "velocity"
@@ -701,15 +749,15 @@ ax.set_ylim(
     bottom=0,
     top=y_base + (len(hue_order) - 1) * gap + h * 2.5
 )
-
+summary.to_csv(os.path.join(SAVE_FOLDER,rf'Fig2_velocity_maturation_{particle}_{expression}.csv'), index=False)
 plt.tight_layout()
-# plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig1_velocity_maturation_LowExp_Zap70.png',dpi=600)
-# plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig1_velocity_maturation_LowExp_Zap70.pdf',dpi=600)
+plt.savefig(os.path.join(SAVE_FOLDER, rf'Fig2_velocity_maturation_{particle}_{expression}.png'), dpi=600)
+plt.savefig(os.path.join(SAVE_FOLDER, rf'Fig2_velocity_maturation_{particle}_{expression}.pdf'), dpi=600)
 plt.show()
 
 
 #%% velocities per stage - mature only
-expression = "Low exp"
+expression = "High exp"
 particle = 'CD19'
 # Load the input table.
 velocities = pd.read_csv(
@@ -736,7 +784,7 @@ velocities_clean = add_common_columns(
 
 plot_df = velocities_clean[
     (velocities_clean["expr"] == expression)
-    & (velocities_clean["dil_group"] != "intermediate")
+    # & (velocities_clean["dil_group"] != "intermediate")
     & velocities_clean["cart"].notna()
 ].copy()
 
@@ -843,24 +891,25 @@ handles = [
     for c in cart_order
 ]
 ax.legend(handles=handles, title="CAR", frameon=False, loc="lower right")
+summary.to_csv(os.path.join(SAVE_FOLDER, f'Fig2_velocity_stage_{particle}_{expression}.csv'), index=False)
 
 plt.tight_layout()
 ax.set_xlim(-0.5, len(cart_order) - 1)
-# plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig2_velocity_stage_LowExp_CD19.png', dpi=600)
-# plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig2_velocity_stage_LowExp_CD19.pdf', dpi=600)
+plt.savefig(os.path.join(SAVE_FOLDER, f'Fig2_velocity_stage_{particle}_{expression}.pdf'), dpi=600)
+plt.savefig(os.path.join(SAVE_FOLDER, f'Fig2_velocity_stage_{particle}_{expression}.png'), dpi=600)
 plt.show()
 
 
 #%% paired difference of velocities (during − pre) per track for statsitics of decrase. T-test on log scale for between difference of 1, and welch t-test for between CARs.
-expression = "Low exp"
-
+expression = "High exp"
+particle = 'Zap70'
 # Load the input table.
 velocities = pd.read_csv(
     r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\all_cotracks_velocities&directionality_stats_correctedtime.csv'
 )
 
 # Filter
-velocities = velocities[velocities.particle == 'CD19']
+velocities = velocities[velocities.particle == particle]
 
 velocities_clean = velocities.loc[
     velocities['avg_speed'].notna()
@@ -879,7 +928,7 @@ velocities_clean = add_common_columns(
 
 plot_df = velocities_clean[
     (velocities_clean["expr"] == expression)
-    & (velocities_clean["dil_group"] != "intermediate")
+    # & (velocities_clean["dil_group"] != "intermediate")
     & (velocities_clean["cart"].notna())
 ].copy()
 
@@ -1016,14 +1065,16 @@ handles = [
 ]
 ax.legend(handles=handles, title="CAR", frameon=False, loc="lower right")
 
+summary.to_csv(os.path.join(SAVE_FOLDER, f'Fig2_velocity_stage_Diff{particle}_{expression}.csv'), index=False)
+
 plt.tight_layout()
 ax.set_xlim(-0.5, len(cart_order) - 0.5)
-# plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig2_velocity_foldchange_LowExp_CD19.png', dpi=600)
-# plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig2_velocity_foldchange_LowExp_CD19.pdf', dpi=600)
+plt.savefig(os.path.join(SAVE_FOLDER, f'Fig2_velocity_stage_Diff{particle}_{expression}.png'), dpi=600)
+plt.savefig(os.path.join(SAVE_FOLDER, f'Fig2_velocity_stage_Diff{particle}_{expression}.pdf'), dpi=600)
 plt.show()
 #%% Intensities small clusters - mature over time only (with permutation test CART3 vs CART4 per timing)
 
-expression = "Low exp"
+expression = "High exp"
 particle = 'Zap70'
 
 # Load the table and keep the same cleaning steps as before.
@@ -1044,7 +1095,7 @@ plot_df = add_common_columns(
 )
 #filter
 plot_df = plot_df[plot_df["expr"] == expression].copy()
-plot_df = plot_df[plot_df["dil_group"] != "intermediate"].copy()
+# plot_df = plot_df[plot_df["dil_group"] != "intermediate"].copy()
 
 # exclude post timing
 plot_df = plot_df[plot_df["timing"] != "post"].copy()
@@ -1152,10 +1203,11 @@ handles = [
 ]
 ax.legend(handles=handles, title="CAR", frameon=False, loc="upper center")
 
+# summary_plot.to_csv(os.path.join(SAVE_FOLDER, f'Fig2_intensity_stage_matureOnly_{expression}_{particle}.csv'), index=False)
 plt.tight_layout()
 
-# plt.savefig(rf'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig2_intensity_stage_matureOnly_{expression}_{particle}.png', dpi=600)
-# plt.savefig(rf'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig2_intensity_stage_matureOnly_{expression}_{particle}.pdf', dpi=600)
+# plt.savefig(os.path.join(SAVE_FOLDER, f'Fig2_intensity_stage_matureOnly_{expression}_{particle}.png'), dpi=600)
+# plt.savefig(os.path.join(SAVE_FOLDER, f'Fig2_intensity_stage_matureOnly_{expression}_{particle}.pdf'), dpi=600)
 
 plt.show()
 
@@ -1185,7 +1237,7 @@ df = add_common_columns(
 )
 #more filter
 df = df[df["expr"] == expression].copy()
-df = df[df["dil_group"] != "intermediate"].copy()
+# df = df[df["dil_group"] != "intermediate"].copy()
 
 # Keep only the pre and during time points.
 order = ["pre", "during"]
@@ -1326,14 +1378,16 @@ handles = [
 ]
 ax.legend(handles=handles, title="CAR", frameon=False, loc="upper right")
 
+summary.to_csv(os.path.join(SAVE_FOLDER, f'Fig2_intensityRatio_stage_matureOnly_{expression}_{particle}.csv'), index=False)
+
 plt.tight_layout()
-# plt.savefig(rf'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig2_intensityRatio_stage_matureOnly_{expression}_{particle}.png', dpi=600)
-# plt.savefig(rf'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig2_intensityRatio_stage_matureOnly_{expression}_{particle}.pdf', dpi=600)
+plt.savefig(os.path.join(SAVE_FOLDER, f'Fig2_intensityRatio_stage_matureOnly_{expression}_{particle}.png'), dpi=600)
+plt.savefig(os.path.join(SAVE_FOLDER, f'Fig2_intensityRatio_stage_matureOnly_{expression}_{particle}.pdf'), dpi=600)
 plt.show()
 
 #%% Intensity zap70/CD19 ratio — Panel 1 with Welch t-test
 
-expression = "Low exp"
+expression = "High exp"
 ycol = "median_intensity"
 
 # Load the input table.
@@ -1354,7 +1408,7 @@ df = add_common_columns(
 )
 #filter part 2 
 df = df[df["expr"] == expression].copy()
-df = df[df["dil_group"] != "intermediate"].copy()
+# df = df[df["dil_group"] != "intermediate"].copy()
 
 df = df[df["particle"].isin(["Zap70", "CD19"])].copy()
 
@@ -1362,7 +1416,7 @@ order = ["pre", "during"]
 df = df[df["timing"].isin(order)].copy()
 
 # Pair Zap70 and CD19 measurements for the same cell, track, and timing.
-key_cols = ["cell_id", "colocID", "timing"]
+key_cols = ["run","cell_id", "colocID", "timing"]
 
 wide = (
     df.pivot_table(index=key_cols, columns="particle", values=ycol)
@@ -1476,15 +1530,16 @@ handles = [
 ]
 ax.legend(handles=handles, title="CAR", frameon=False, loc="upper center")
 
+summary.to_csv(os.path.join(SAVE_FOLDER, f'Fig2_intensity_Zap70overCD19_stage_matureOnly_{expression}_V2.csv'), index=False)
 plt.tight_layout()
-# plt.savefig(rf'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig2_intensity_Zap70overCD19_stage_matureOnly_{expression}.png', dpi=600)
-# plt.savefig(rf'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig2_intensity_Zap70overCD19_stage_matureOnly_{expression}.pdf', dpi=600)
+plt.savefig(os.path.join(SAVE_FOLDER, f'Fig2_intensity_Zap70overCD19_stage_matureOnly_{expression}_V2.png'), dpi=600)
+plt.savefig(os.path.join(SAVE_FOLDER, f'Fig2_intensity_Zap70overCD19_stage_matureOnly_{expression}_V2.pdf'), dpi=600)
 plt.show()
 
 
 #%% Zap70/CD19 ratio-of-ratios (paired change) — Δ panel with stats
 
-expression = "Low exp"
+expression = "High exp"
 ycol = "median_intensity"
 
 # Load the input table.
@@ -1505,7 +1560,7 @@ df = add_common_columns(
 )
 #more filtering
 df = df[df["expr"] == expression].copy()
-df = df[df["dil_group"] != "intermediate"].copy()
+# df = df[df["dil_group"] != "intermediate"].copy()
 
 df = df[df["particle"].isin(["Zap70", "CD19"])].copy()
 
@@ -1674,52 +1729,233 @@ handles = [
 ]
 ax.legend(handles=handles, title="CAR", frameon=False, loc="lower right")
 
+summary.to_csv(os.path.join(SAVE_FOLDER, f'Fig2_Zap70overCD19Ratio_stage_matureOnly_{expression}.csv'), index=False)
+
 plt.tight_layout()
-# plt.savefig(rf'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig2_Zap70overCD19Ratio_matureOnly_{expression}.png', dpi=600)
-# plt.savefig(rf'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig2_Zap70overCD19Ratio_matureOnly_{expression}.pdf', dpi=600)
+plt.savefig(os.path.join(SAVE_FOLDER, f'Fig2_Zap70overCD19Ratio_matureOnly_{expression}.png'), dpi=600)
+plt.savefig(os.path.join(SAVE_FOLDER, f'Fig2_Zap70overCD19Ratio_matureOnly_{expression}.pdf'), dpi=600)
 plt.show()
+
+
 
 
 #%% Colocalization and intensity example 
-#D:\Data\Chi_data\20250801_filtered\output\CART4 CAT Low aff Low exp\100xdilutedCD19\20240826_142xdilutedCD19\R1_cont\Run00002 - colocID 9
-#326 not bad
-# Second example:
-#D:\Data\Chi_data\20250801_filtered\output\CART4 CAT Low aff Low exp\50xdilutedCD19\20240826_53.25xdilutedCD19\R2\Run00003
-#113
-# Third example:
-#P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\CART4 CAT Low aff High exp\1000xdilutedCD19\20241104_1000xdilutedCD19\R2\Run00002
-#269
-# 106
-cID = 7
 example_run = ta.Single_tracked_folder(
-    r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\CART4 CAT Low aff High exp\1000xdilutedCD19\20241104_1000xdilutedCD19\R2\Run00002'
+    r'D:\Data\Chi_data\20250801_filtered\output\CART4 CAT Low aff High exp\1000xdilutedCD19\20241103_1000xdilutedCD19\R1\R1_1\Run00001'
 ).open_files()
-a = example_run.coloc_stats
-# Uncomment to inspect the available colocalization IDs.
-c = example_run.plot_colocs([cID])
+num = 0
+pad = 2
+aa = example_run.coloc_stats
+c = example_run.plot_colocs([num])
+fig = c.fig
+ax = c.ax
+im = ax.images[0]
+
+magenta_cmap = LinearSegmentedColormap.from_list(
+    "black_to_magenta",
+    ["black", "magenta"]
+)
+
+im.set_cmap(magenta_cmap)
+
+img = np.asarray(im.get_array())
+
+img = np.asarray(im.get_array())
+
+img_padded = np.pad(
+    img,
+    pad_width=pad,
+    mode="constant",
+    constant_values=0
+)
+
+im.set_data(img_padded)
+
+h, w = img_padded.shape
+im.set_extent((-0.5, w - 0.5, h - 0.5, -0.5))
+
+acontour = aa.loc[aa["colocID"] == num, "contour"].values[0]
+acontour = np.asarray(acontour, dtype=float)
+
+x0 = acontour[:, 0].min()
+y0 = acontour[:, 1].min()
+
+x = acontour[:, 0] - x0 + pad
+y = acontour[:, 1] - y0 + pad
+
+x = np.r_[x, x[0]]
+y = np.r_[y, y[0]]
+
+ax.plot(
+    x,
+    y,
+    color="blue",
+    linewidth=3,
+    zorder=999999,
+)
+
+
+# Update view limits to include padded image
+ax.set_xlim(-0.5, w - 0.5)
+ax.set_ylim(h - 0.5, -0.5)
+
+ax.axis("off")
+display(fig)
+fig.savefig(rf'\\sun\ganzinger\project-folder\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\20260421_with_intermediate\Fig2_Example_track_CoLocalizationID{num}_with_contour.png', dpi=600, bbox_inches="tight", pad_inches=0)
+fig.savefig(rf'\\sun\ganzinger\project-folder\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\20260421_with_intermediate\Fig2_Example_track_CoLocalizationID{num}_with_contour.pdf', dpi=600, bbox_inches="tight", pad_inches=0)
+
+b = example_run.plot_intensity_coloc(num, legend_0='CD19', legend_1='ZAP70')
+# b = example_run.plot_intensity_coloc(num, legend_0='CD19', legend_1='ZAP70')
 plt.show()
-b = example_run.plot_intensity_coloc(cID, legend_0='CD19', legend_1='ZAP70')
-
-plt.show()
-# b.save_plot(rf'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig2_Example_cotrack_intensityID{cID}.png', dpi=600)
-# b.save_plot(rf'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig2_Example_cotrack_intensityID{cID}.pdf', dpi=600)
-# c.save_plot(rf'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig2_Example_cotrack_CoLocalizationID{cID}.png', dpi=600)
-# c.save_plot(rf'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig2_Example_cotrack_CoLocalizationID{cID}.pdf', dpi=600)
+# c.save_plot(rf'\\sun\ganzinger\project-folder\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\20260421_with_intermediate\Fig2_Example_track_CoLocalizationID{num}.png', dpi=600)
+# c.save_plot(rf'\\sun\ganzinger\project-folder\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\20260421_with_intermediate\Fig2_Example_track_CoLocalizationID{num}.pdf', dpi=600)
+b.save_plot(rf'\\sun\ganzinger\project-folder\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\20260421_with_intermediate\Fig2_Example_track_intensity_CoLocalizationID{num}.png', dpi=600)
+b.save_plot(rf'\\sun\ganzinger\project-folder\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\20260421_with_intermediate\Fig2_Example_track_intensity_CoLocalizationID{num}.pdf', dpi=600)
 
 
-#%% intensity before and after maturation
-expression = "Low exp"
+#%%
+example_run = ta.Single_tracked_folder(
+    r'D:\Data\Chi_data\20250801_filtered\output\CART4 CAT Low aff High exp\1000xdilutedCD19\20241103_1000xdilutedCD19\R1\R1_1\Run00001'
+).open_files()
+num = 0
+pad = 2
+
+stats_df = example_run.coloc_stats
+stats_df_num = stats_df[stats_df["colocID"] == num]
+
+contour = stats_df_num["contour"].values[0]
+
+x0 = contour[:, 0].min()
+y0 = contour[:, 1].min()
+x1 = contour[:, 0].max()
+y1 = contour[:, 1].max()
+
+# padded crop bounds
+x0p = max(int(x0) - pad, 0)
+y0p = max(int(y0) - pad, 0)
+x1p = min(int(x1) + pad + 1, example_run.ch0.shape[2])
+y1p = min(int(y1) + pad + 1, example_run.ch0.shape[1])
+
+# contour coordinates relative to padded crop
+x = contour[:, 0] - x0p
+y = contour[:, 1] - y0p
+
+x = np.r_[x, x[0]]
+y = np.r_[y, y[0]]
+
+track_0_id = stats_df_num["track.id0"].values[0]
+track_1_id = stats_df_num["track.id1"].values[0]
+
+ch_0_tracks = example_run.tracks0[example_run.tracks0["track.id"] == track_0_id]
+ch_1_tracks = example_run.tracks1[example_run.tracks1["track.id"] == track_1_id]
+
+# crop with padding
+im0 = example_run.ch0[:, y0p:y1p, x0p:x1p]
+im1 = example_run.ch1[:, y0p:y1p, x0p:x1p]
+
+ch_0_tracks_min_frame = ch_0_tracks["t"].min()
+coloc_frame = stats_df_num["overlap_t"].values[0].min()
+ch_0_tracks_max_frame = ch_0_tracks["t"].max()
+
+# positions relative to padded crop
+origin = np.array([x0p, y0p])
+
+ch_0_pos_min = (ch_0_tracks[ch_0_tracks["t"] == ch_0_tracks_min_frame][["x", "y"]].values[0] / 108 - origin)
+ch_0_pos_coloc = (ch_0_tracks[ch_0_tracks["t"] == coloc_frame][["x", "y"]].values[0] / 108 - origin)
+ch_1_pos_coloc = (ch_1_tracks[ch_1_tracks["t"] == coloc_frame][["x", "y"]].values[0] / 108 - origin)
+ch_0_pos_max = (ch_0_tracks[ch_0_tracks["t"] == ch_0_tracks_max_frame][["x", "y"]].values[0] / 108 - origin)
+ch_1_pos_max = (ch_1_tracks[ch_1_tracks["t"] == ch_0_tracks_max_frame][["x", "y"]].values[0] / 108 - origin)
+
+
+magenta_cmap = LinearSegmentedColormap.from_list(
+    "black_to_magenta",
+    ["black", "magenta"]
+)
+cyan_cmap = LinearSegmentedColormap.from_list(
+    "black_to_cyan",
+    ["black", "cyan"]
+)
+
+fig, axs = plt.subplots(2, 3, figsize=(9, 5))
+ax0, ax1, ax2, ax3, ax4, ax5 = axs.ravel()
+
+scale_bar_um = 5
+pixel_size_um = 0.108
+scale_bar_px = scale_bar_um / pixel_size_um  # ≈ 46.3 pixels
+
+bar_height = 3
+margin = 8
+
+h, w = im0[ch_0_tracks_min_frame].shape
+
+x_start = w - margin - scale_bar_px
+x_end = w - margin
+y_bar = h - margin
+
+for ax in axs.ravel():
+    ax.axis("off")
+    ax.plot(
+        x,
+        y,
+        color="white",
+        linewidth=2,
+        zorder=999999,
+    )
+    ax.plot(
+    [x_start, x_end],
+    [y_bar, y_bar],
+    color="white",
+    linewidth=bar_height,
+    solid_capstyle="butt",
+    zorder=999999,
+)
+
+ch_0_tracks_min_sec = ch_0_tracks_min_frame * 2
+coloc_sec = coloc_frame * 2
+ch_0_tracks_max_sec = ch_0_tracks_max_frame * 2
+
+ax0.set_title(f"sec = {ch_0_tracks_min_sec}")
+ax1.set_title(f"sec = {coloc_sec}")
+ax2.set_title(f"sec = {ch_0_tracks_max_sec}")
+
+ax0.imshow(im0[ch_0_tracks_min_frame], cmap=magenta_cmap)
+ax0.plot(ch_0_pos_min[0], ch_0_pos_min[1], marker="s", color="yellow", markersize=3)
+
+ax1.imshow(im0[coloc_frame], cmap=magenta_cmap)
+ax1.plot(ch_0_pos_coloc[0], ch_0_pos_coloc[1], marker="s", color="yellow", markersize=3)
+
+ax2.imshow(im0[ch_0_tracks_max_frame], cmap=magenta_cmap)
+ax2.plot(ch_0_pos_max[0], ch_0_pos_max[1], marker="s", color="yellow", markersize=3)
+
+ax3.imshow(im1[ch_0_tracks_min_frame], cmap=cyan_cmap)
+
+ax4.imshow(im1[coloc_frame], cmap=cyan_cmap)
+ax4.plot(ch_1_pos_coloc[0], ch_1_pos_coloc[1], marker="s", color="yellow", markersize=3)
+
+ax5.imshow(im1[ch_0_tracks_max_frame], cmap=cyan_cmap)
+ax5.plot(ch_1_pos_max[0], ch_1_pos_max[1], marker="s", color="yellow", markersize=3)
+
+plt.savefig(rf'\\sun\ganzinger\project-folder\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\20260421_with_intermediate\Fig2_Example_track_CoLocalization_timepointsID{num}_with_contour.png', dpi=1200, bbox_inches="tight", pad_inches=0)
+plt.savefig(rf'\\sun\ganzinger\project-folder\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\20260421_with_intermediate\Fig2_Example_track_CoLocalization_timepointsID{num}_with_contour.pdf', dpi=1200, bbox_inches="tight", pad_inches=0)
+
+
+
+#%% intensity before and after maturation + compare the 2 CARs within each maturation stage
+expression = "High exp"
+
 title_dict = {
     'total_mean_cd': "Intensity CD19",
     'total_mean_zap': "Intensity Zap70",
     "total_mean_ratio": "Zap70 / CD19 intensity ratio"
 }
+
 name = {
     'total_mean_cd': "CD19",
     'total_mean_zap': "Zap70",
     "total_mean_ratio": "Zap70overCD19"
 }
-col_to_plot = "total_mean_ratio"
+
+col_to_plot = "total_mean_cd"
 
 intensities = pd.read_csv(
     r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\intensity_maturation_summary.csv'
@@ -1730,7 +1966,6 @@ int_to_plot = intensities[
     (intensities[col_to_plot] > 0)
 ].copy()
 
-# Summarize with geometric mean and confidence interval.
 summary = (
     int_to_plot.dropna()
     .groupby(["CART", "mature"])[col_to_plot]
@@ -1740,10 +1975,39 @@ summary = (
 )
 summary.columns = ["CART", "mature", "gmean", "ci_low", "ci_high"]
 
-# Compare mature and not-mature groups within each CAR using a Welch t-test on log-transformed intensity.
-pvals = []
-for cart in summary["CART"].unique():
+cart_order = sorted(summary["CART"].unique())
+mature_order = ["not-mature", "mature"]
+
+if len(cart_order) != 2:
+    raise ValueError(f"This version expects exactly 2 CARs, but found {len(cart_order)}: {cart_order}")
+
+car1, car2 = cart_order
+
+pvals_between_cars = []
+
+for mature_state in mature_order:
+    sub = int_to_plot[int_to_plot["mature"] == mature_state]
+
+    g1 = np.log(sub.loc[sub["CART"] == car1, col_to_plot].values)
+    g2 = np.log(sub.loc[sub["CART"] == car2, col_to_plot].values)
+
+    if len(g1) < 2 or len(g2) < 2:
+        p = np.nan
+    else:
+        _, p = stats.ttest_ind(g1, g2, equal_var=False)
+
+    pvals_between_cars.append({
+        "mature": mature_state,
+        "p_value": p
+    })
+
+pvals_between_cars = pd.DataFrame(pvals_between_cars)
+
+pvals_between_maturation = []
+
+for cart in cart_order:
     sub = int_to_plot[int_to_plot["CART"] == cart]
+
     g1 = np.log(sub.loc[sub["mature"] == "not-mature", col_to_plot].values)
     g2 = np.log(sub.loc[sub["mature"] == "mature", col_to_plot].values)
 
@@ -1752,98 +2016,466 @@ for cart in summary["CART"].unique():
     else:
         _, p = stats.ttest_ind(g1, g2, equal_var=False)
 
-    pvals.append({"CART": cart, "p_value": p})
-pvals = pd.DataFrame(pvals)
+    pvals_between_maturation.append({
+        "CART": cart,
+        "p_value": p
+    })
 
-# Set up the plot layout and color choices.
-cart_order = sorted(summary["CART"].unique())
-mature_order = ["not-mature", "mature"]
+pvals_between_maturation = pd.DataFrame(pvals_between_maturation)
+
+plt.figure(figsize=(6.5, 4.8))
+ax = plt.gca()
 
 x_base = {c: i for i, c in enumerate(cart_order)}
 offset_step = 0.25
 mature_to_i = {m: i for i, m in enumerate(mature_order)}
 
 palette = {
-    mature_order[0]: "#b23a8a",
-    mature_order[1]: "#1A7A42"
+    "not-mature": "#b23a8a",
+    "mature": "#1A7A42"
 }
 
-plt.figure(figsize=(6, 4))
-ax = plt.gca()
+box_width = 0.18
 
-pos = {} 
+pos = {}
 
-# Plot the summary points and their confidence intervals.
-for _, r in summary.iterrows():
-    base = x_base[r["CART"]]
-    offset = (mature_to_i[r["mature"]] - (len(mature_order) - 1) / 2) * offset_step
-    x = base + offset
+for cart in cart_order:
+    for mature_state in mature_order:
+        sub = int_to_plot[
+            (int_to_plot["CART"] == cart) &
+            (int_to_plot["mature"] == mature_state)
+        ][col_to_plot].dropna()
 
-    color = palette[r["mature"]]
-    y = r["gmean"]
+        if len(sub) == 0:
+            continue
 
-    ax.plot(x, y, marker="o", linestyle="None",
-            color=color, markersize=7)
+        base = x_base[cart]
+        offset = (mature_to_i[mature_state] - (len(mature_order) - 1) / 2) * offset_step
+        x = base + offset
 
-    ax.errorbar(
-        x, y,
-        yerr=[[y - r["ci_low"]], [r["ci_high"] - y]],
-        fmt="none", ecolor="black", elinewidth=1, capsize=3
-    )
+        bp = ax.boxplot(
+            sub,
+            positions=[x],
+            widths=box_width,
+            patch_artist=True,
+            showfliers=False
+        )
 
-    pos.setdefault(r["CART"], {})[r["mature"]] = (x, r["ci_high"])
+        for box in bp['boxes']:
+            box.set(facecolor=palette[mature_state], alpha=0.6)
 
-# Add p-value brackets for the timing-specific comparisons.
+
+        for element in ['whiskers', 'caps', 'medians']:
+            for item in bp[element]:
+                item.set(color='black')
+
+        jitter = np.random.normal(0, 0.02, size=len(sub))
+        ax.scatter(
+            np.full(len(sub), x) + jitter,
+            sub,
+            color='black',
+            s=15,
+            alpha=0.4,
+            zorder=3
+        )
+
+        pos.setdefault(cart, {})[mature_state] = x
+
 all_ci_high = summary["ci_high"].max()
-h = all_ci_high * 0.05
-y_base_bracket = all_ci_high * 1.10
+h = all_ci_high *0.04
 
-for i, cart in enumerate(cart_order):
+#comparisons within same CAR across maturation
+y_within_car_1 = all_ci_high * 1.9
+y_within_car_2 = all_ci_high * 2.0
+
+#comparisons between CARs within same maturation stage
+y_between_cars_notmat = all_ci_high * 2.33
+y_between_cars_mat = all_ci_high * 2.8
+
+for i, row in pvals_between_maturation.iterrows():
+    cart = row["CART"]
+    p = row["p_value"]
+
+    if pd.isna(p):
+        continue
     if cart not in pos:
         continue
     if "not-mature" not in pos[cart] or "mature" not in pos[cart]:
         continue
 
-    x1, _ = pos[cart]["not-mature"]
-    x2, _ = pos[cart]["mature"]
-    yb = y_base_bracket
+    x1= pos[cart]["not-mature"]
+    x2= pos[cart]["mature"]
 
-    p = float(pvals.loc[pvals["CART"] == cart, "p_value"].values[0])
+    yb = y_within_car_1 if i == 0 else y_within_car_2
     add_bracket_with_p(ax, x1, x2, yb, h, format_p(p))
 
-# Format the axes.
+
+for _, row in pvals_between_cars.iterrows():
+    mature_state = row["mature"]
+    p = row["p_value"]
+
+    if pd.isna(p):
+        continue
+
+    if car1 not in pos or car2 not in pos:
+        continue
+    if mature_state not in pos[car1] or mature_state not in pos[car2]:
+        continue
+
+    x1 = pos[car1][mature_state]
+    x2 = pos[car2][mature_state]
+
+    if mature_state == "not-mature":
+        yb = y_between_cars_notmat
+    else:
+        yb = y_between_cars_mat
+
+    add_bracket_with_p(ax, x1, x2, yb, h, format_p(p))
+
 ax.set_xticks([x_base[c] for c in cart_order])
 ax.set_xticklabels(cart_order)
 ax.set_xlabel("CART")
-ax.set_ylabel(f"{title_dict[col_to_plot]} (geometric mean ± 95% CI)")
+ax.set_ylabel(title_dict[col_to_plot])
 
 ax.spines["top"].set_visible(False)
 ax.spines["right"].set_visible(False)
 
 ax.set_xlim(-0.5, len(cart_order) - 0.5)
-ax.set_ylim(bottom=0, top=y_base_bracket + h * 3)
+ax.set_ylim(bottom=0, top=y_between_cars_mat + h * 3)
 
-# Add the legend.
 handles = [
-    Line2D([0], [0], marker='o', linestyle='None',
-           color=palette[m], label=str(m), markersize=7)
+    Line2D(
+        [0], [0],
+        marker='o',
+        linestyle='None',
+        color=palette[m],
+        label=str(m),
+        markersize=7
+    )
     for m in mature_order
 ]
+
 ax.legend(handles=handles, title="Mature", frameon=False)
 
+summary.columns = ["CART", "mature", "gmean", "ci_low", "ci_high"]
+# summary.to_csv(
+#     rf'\\sun\ganzinger\project-folder\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\20260421_with_intermediate\1_intensity_maturation_{name[col_to_plot]}_{expression}_allcomparisons.csv',
+#     index=False
+# )
 plt.tight_layout()
-# plt.savefig(rf'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig1_intensity_maturation_{name[col_to_plot]}_LowExp.pdf', dpi=600)
-# plt.savefig(rf'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig1_intensity_maturation_{name[col_to_plot]}_LowExp.png', dpi=600)
+
+# plt.savefig(
+#     rf'\\sun\ganzinger\project-folder\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\20260421_with_intermediate\1_intensity_maturation_{name[col_to_plot]}_{expression}_allcomparisons.pdf',
+#     dpi=600
+# )
+# plt.savefig(
+#     rf'\\sun\ganzinger\project-folder\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\20260421_with_intermediate\1_intensity_maturation_{name[col_to_plot]}_{expression}_allcomparisons.png',
+#     dpi=600
+# )
+
 plt.show()
-#%% Colocalization and intensity example 
-#D:\Data\Chi_data\20250801_filtered\output\CART4 CAT Low aff Low exp\100xdilutedCD19\20240826_142xdilutedCD19\R1_cont\Run00002 - colocID 9
-# cIDs: 7 and 20181
-cID = 218
-example_run = ta.Single_tracked_folder(
-    r'D:\Data\Chi_data\20250801_filtered\output\CART4 CAT Low aff Low exp\100xdilutedCD19\20240826_142xdilutedCD19\R1_cont\Run00002'
-).open_files()
-a = example_run.stats0
-c = example_run.plot_tracks([cID])
-# plt.show()
-# c.save_plot(rf'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig2_Example_track_CoLocalizationID{cID}.png', dpi=600)
-# c.save_plot(rf'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig2_Example_track_CoLocalizationID{cID}.pdf', dpi=600)
+
+#%%Area plotting
+final_result = pd.read_csv(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\cell_level_analysis.csv')
+plt.rcParams.update({'font.size': 16})
+
+save_path = (
+    r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment'
+    r'\20250801_filtered\output\Nguyen2026_analysis'
+    r'\figures\20260421_with_intermediate'
+)
+
+final_result['cond'] = final_result['run'].astype(str).apply(lambda x: x.split('\\')[5])
+final_result['dil'] = final_result['run'].astype(str).apply(lambda x: x.split('\\')[6])
+
+final_result['intensity_density'] = (
+    final_result['norm_sum_int_mean'] / final_result['area_mean']
+)
+
+final_result['area_um2'] = final_result['area_mean'] / 1_000_000
+
+mature_df = final_result[
+    final_result['maturation_stage'].isin(['postmaturation', 'prematuration'])
+].copy()
+
+pre_immature_df = final_result[
+    final_result['maturation_stage'].isin(['prematuration', 'immature'])
+].copy()
+
+pre_immature_df['stage_plot'] = pre_immature_df['maturation_stage'].replace({
+    'prematuration': 'Pre-maturation',
+    'immature': 'Never mature'
+})
+
+mature_hue_order = ['postmaturation', 'prematuration']
+pre_immature_hue_order = ['Pre-maturation', 'Never mature']
+
+summary = final_result.groupby(['cond', 'maturation_stage']).agg(
+    area_mean=('area_um2', 'mean'),
+    area_sem=('area_um2', 'sem'),
+    n_cells=('area_um2', 'count')
+).reset_index()
+
+fig, axes = plt.subplots(
+    2,
+    1,
+    figsize=(14, 18),
+    sharex=False,
+    sharey=True
+)
+
+ax1 = axes[0]
+ax2 = axes[1]
+
+sns.boxplot(
+    data=mature_df,
+    x='cond',
+    y='area_um2',
+    hue='maturation_stage',
+    hue_order=mature_hue_order,
+    showfliers=False,
+    ax=ax1
+)
+
+sns.stripplot(
+    data=mature_df,
+    x='cond',
+    y='area_um2',
+    hue='maturation_stage',
+    hue_order=mature_hue_order,
+    dodge=True,
+    jitter=True,
+    marker='o',
+    alpha=1,
+    linewidth=0,
+    ax=ax1
+)
+
+handles, labels = ax1.get_legend_handles_labels()
+ax1.legend(
+    handles[:2],
+    labels[:2],
+    title='Maturation Stage',
+    fontsize=14,
+    title_fontsize=18
+)
+
+ax1.set_xlabel('')
+ax1.set_ylabel('Area (um²)', fontsize=18)
+ax1.set_title('Cells that mature', fontsize=20)
+ax1.tick_params(axis='x', rotation=-45)
+
+sns.boxplot(
+    data=pre_immature_df,
+    x='cond',
+    y='area_um2',
+    hue='stage_plot',
+    hue_order=pre_immature_hue_order,
+    showfliers=False,
+    ax=ax2
+)
+
+sns.stripplot(
+    data=pre_immature_df,
+    x='cond',
+    y='area_um2',
+    hue='stage_plot',
+    hue_order=pre_immature_hue_order,
+    dodge=True,
+    jitter=True,
+    marker='o',
+    alpha=1,
+    linewidth=0,
+    ax=ax2
+)
+
+handles, labels = ax2.get_legend_handles_labels()
+ax2.legend(
+    handles[:2],
+    labels[:2],
+    title='Cell group',
+    fontsize=14,
+    title_fontsize=18
+)
+
+ax2.set_xlabel('Condition', fontsize=18)
+ax2.set_ylabel('Area (um²)', fontsize=18)
+ax2.set_title('Pre-maturation vs never mature cells', fontsize=20)
+ax2.tick_params(axis='x', rotation=-45)
+
+ymax = final_result['area_um2'].max()
+ymin = final_result['area_um2'].min()
+yrange = ymax - ymin
+
+stats_results = []
+
+mature_conditions = [tick.get_text() for tick in ax1.get_xticklabels()]
+mature_condition_pos = {cond: i for i, cond in enumerate(mature_conditions)}
+
+mature_hue_offset = {
+    'postmaturation': -0.2,
+    'prematuration': 0.2
+}
+
+mature_comparisons = [
+    (
+        'CART4 CAT Low aff Low exp',
+        'CART3 FMC63 High aff Low exp',
+        'postmaturation'
+    ),
+    (
+        'CART4 CAT Low aff Low exp',
+        'CART3 FMC63 High aff Low exp',
+        'prematuration'
+    ),
+    (
+        'CART4 CAT Low aff High exp',
+        'CART3 FMC63 High aff High exp',
+        'postmaturation'
+    ),
+    (
+        'CART4 CAT Low aff High exp',
+        'CART3 FMC63 High aff High exp',
+        'prematuration'
+    )
+]
+
+for idx, (cond1, cond2, stage) in enumerate(mature_comparisons):
+
+    group1 = mature_df[
+        (mature_df['cond'] == cond1) &
+        (mature_df['maturation_stage'] == stage)
+    ]['area_um2'].dropna()
+
+    group2 = mature_df[
+        (mature_df['cond'] == cond2) &
+        (mature_df['maturation_stage'] == stage)
+    ]['area_um2'].dropna()
+
+    if len(group1) > 0 and len(group2) > 0:
+        stat, p = mannwhitneyu(group1, group2)
+    else:
+        stat, p = np.nan, np.nan
+
+    stats_results.append({
+        'plot': 'mature_cells',
+        'comparison': f'{cond1} vs {cond2}',
+        'group': stage,
+        'n_group1': len(group1),
+        'n_group2': len(group2),
+        'mannwhitney_stat': stat,
+        'pvalue': p
+    })
+
+    if cond1 in mature_condition_pos and cond2 in mature_condition_pos:
+
+        x1 = mature_condition_pos[cond1] + mature_hue_offset[stage]
+        x2 = mature_condition_pos[cond2] + mature_hue_offset[stage]
+
+        y = ymax + (idx + 1) * 0.04 * yrange
+        h = 0.005 * yrange
+
+        ax1.plot(
+            [x1, x1, x2, x2],
+            [y, y + h, y + h, y],
+            color='black',
+            linewidth=1
+        )
+
+        ax1.text(
+            (x1 + x2) / 2,
+            y + h,
+            f"p = {p:.4f}",
+            ha='center',
+            va='bottom',
+            fontsize=11
+        )
+
+pre_immature_conditions = [tick.get_text() for tick in ax2.get_xticklabels()]
+pre_immature_condition_pos = {
+    cond: i for i, cond in enumerate(pre_immature_conditions)
+}
+
+pre_immature_hue_offset = {
+    'Pre-maturation': -0.2,
+    'Never mature': 0.2
+}
+
+for idx, cond in enumerate(pre_immature_conditions):
+
+    pre_values = pre_immature_df[
+        (pre_immature_df['cond'] == cond) &
+        (pre_immature_df['stage_plot'] == 'Pre-maturation')
+    ]['area_um2'].dropna()
+
+    immature_values = pre_immature_df[
+        (pre_immature_df['cond'] == cond) &
+        (pre_immature_df['stage_plot'] == 'Never mature')
+    ]['area_um2'].dropna()
+
+    if len(pre_values) > 0 and len(immature_values) > 0:
+        stat, p = mannwhitneyu(pre_values, immature_values)
+    else:
+        stat, p = np.nan, np.nan
+
+    stats_results.append({
+        'plot': 'pre_vs_immature',
+        'comparison': cond,
+        'group': 'prematuration_vs_immature',
+        'n_group1': len(pre_values),
+        'n_group2': len(immature_values),
+        'mannwhitney_stat': stat,
+        'pvalue': p
+    })
+
+    x1 = pre_immature_condition_pos[cond] + pre_immature_hue_offset['Pre-maturation']
+    x2 = pre_immature_condition_pos[cond] + pre_immature_hue_offset['Never mature']
+
+    y = ymax + (idx + 1) * 0.02 * yrange
+    h = 0.005 * yrange
+
+    ax2.plot(
+        [x1, x1, x2, x2],
+        [y, y + h, y + h, y],
+        color='black',
+        linewidth=1
+    )
+
+    ax2.text(
+        (x1 + x2) / 2,
+        y + h,
+        f"p = {p:.4f}",
+        ha='center',
+        va='bottom',
+        fontsize=11
+    )
+
+stats_df = pd.DataFrame(stats_results)
+
+upper_y = ymax + 0.2 * yrange
+ax1.set_ylim(ymin, upper_y)
+ax2.set_ylim(ymin, upper_y)
+
+fig.tight_layout()
+
+fig.savefig(
+    rf'{save_path}\area_maturation_and_immature_comparison.pdf',
+    dpi=600
+)
+
+fig.savefig(
+    rf'{save_path}\area_maturation_and_immature_comparison.png',
+    dpi=600
+)
+
+summary.to_csv(
+    rf'{save_path}\area_maturation_and_immature_comparison_summary.csv',
+    index=False
+)
+
+stats_df.to_csv(
+    rf'{save_path}\area_maturation_and_immature_comparison_stats.csv',
+    index=False
+)
+
+plt.show()
