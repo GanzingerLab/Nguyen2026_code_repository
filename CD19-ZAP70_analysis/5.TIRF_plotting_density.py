@@ -2118,7 +2118,20 @@ plt.savefig(os.path.join(SAVE_FOLDER, f'Fig2_Zap70overCD19Ratio_matureOnly_{expr
 plt.savefig(os.path.join(SAVE_FOLDER, f'Fig2_Zap70overCD19Ratio_matureOnly_{expression}_by_density.pdf'), dpi=600)
 plt.show()
 
-#%% intensity non-maturing versus maturing cells + compare the 2 CARs within each group, separated by density
+
+
+
+
+
+
+
+
+
+
+
+
+
+#%% intensity before and after maturation + compare the 2 CARs within each maturation stage, separated by density
 
 expression = "High exp"
 
@@ -2134,17 +2147,11 @@ name = {
     "total_mean_ratio": "Zap70overCD19"
 }
 
-col_to_plot = "total_mean_zap"
+col_to_plot = "total_mean_cd"
 
 intensities = pd.read_csv(
-    r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\Integratedintensity_non-matureVSMature_summary.csv'
+    r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\intensity_maturation_summary.csv'
 )
-
-# Keep the rest of the plotting code unchanged
-intensities["mature"] = intensities["maturation_group"].map({
-    "non-maturing": "not-mature",
-    "maturing": "mature"
-})
 
 intensities["dil_group"] = (
     intensities["dil"]
@@ -2153,15 +2160,10 @@ intensities["dil_group"] = (
     .map(DIL_GROUP_MAP)
 )
 
-
 int_to_plot = intensities[
     (intensities["expr"] == expression)
     & (intensities[col_to_plot] > 0)
     & intensities["dil_group"].notna()
-    & (
-        (col_to_plot != "total_mean_ratio")
-        | (intensities["total_mean_cd"] > 20)
-    )
 ].copy()
 
 summary = (
@@ -2171,22 +2173,8 @@ summary = (
     .apply(pd.Series)
     .reset_index()
 )
+
 summary.columns = ["dil_group", "CART", "mature", "gmean", "ci_low", "ci_high"]
-
-n_summary = (
-    int_to_plot.dropna(subset=[col_to_plot, "CART", "mature", "dil_group"])
-    .groupby(["dil_group", "CART", "mature"])
-    .size()
-    .reset_index(name="n")
-)
-
-summary = summary.merge(
-    n_summary,
-    on=["dil_group", "CART", "mature"],
-    how="left"
-)
-
-summary = summary[["dil_group", "CART", "mature", "n", "gmean", "ci_low", "ci_high"]]
 
 dil_order = ["sparse", "intermediate", "dense"]
 dil_order = [
@@ -2399,279 +2387,12 @@ handles = [
     for m in mature_order
 ]
 
-axes[-1].legend(handles=handles, title="Maturation group", frameon=False)
+axes[-1].legend(handles=handles, title="Mature", frameon=False)
 
-summary.to_csv(os.path.join(SAVE_FOLDER, rf'1_integratedintensity_maturingVSnon-maturing_{name[col_to_plot]}_{expression}_allcomparisons_by_density.csv'), index=False)
+summary.to_csv(os.path.join(SAVE_FOLDER, rf'1_intensity_maturation_{name[col_to_plot]}_{expression}_allcomparisons_by_density.csv'), index=False)
 
 plt.tight_layout()
-plt.savefig(os.path.join(SAVE_FOLDER, rf'1_integratedintensity_maturingVSnon-maturing_{name[col_to_plot]}_{expression}_allcomparisons_by_density.pdf'), dpi=600)
-plt.savefig(os.path.join(SAVE_FOLDER, rf'1_integratedintensity_maturingVSnon-maturing_{name[col_to_plot]}_{expression}_allcomparisons_by_density.png'), dpi=600)
+plt.savefig(os.path.join(SAVE_FOLDER, rf'1_intensity_maturation_{name[col_to_plot]}_{expression}_allcomparisons_by_density.pdf'), dpi=600)
+plt.savefig(os.path.join(SAVE_FOLDER, rf'1_intensity_maturation_{name[col_to_plot]}_{expression}_allcomparisons_by_density.png'), dpi=600)
 
 plt.show()
-
-
-# #%% intensity before and after maturation + compare the 2 CARs within each maturation stage, separated by density
-
-# expression = "Low exp"
-
-# title_dict = {
-#     "total_mean_cd": "Intensity CD19",
-#     "total_mean_zap": "Intensity Zap70",
-#     "total_mean_ratio": "Zap70 / CD19 intensity ratio"
-# }
-
-# name = {
-#     "total_mean_cd": "CD19",
-#     "total_mean_zap": "Zap70",
-#     "total_mean_ratio": "Zap70overCD19"
-# }
-
-# col_to_plot = "total_mean_cd"
-
-# intensities = pd.read_csv(
-#     r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\intensity_maturation_summary.csv'
-# )
-
-# intensities["dil_group"] = (
-#     intensities["dil"]
-#     .astype(str)
-#     .str.strip()
-#     .map(DIL_GROUP_MAP)
-# )
-
-# int_to_plot = intensities[
-#     (intensities["expr"] == expression)
-#     & (intensities[col_to_plot] > 0)
-#     & intensities["dil_group"].notna()
-# ].copy()
-
-# summary = (
-#     int_to_plot.dropna(subset=[col_to_plot, "CART", "mature", "dil_group"])
-#     .groupby(["dil_group", "CART", "mature"])[col_to_plot]
-#     .apply(lambda s: geometric_mean_confidence_interval(s.values))
-#     .apply(pd.Series)
-#     .reset_index()
-# )
-# print(summary)
-# summary.columns = ["dil_group", "CART", "mature", "gmean", "ci_low", "ci_high"]
-
-# dil_order = ["sparse", "intermediate", "dense"]
-# dil_order = [
-#     d for d in dil_order
-#     if d in summary["dil_group"].dropna().unique()
-# ]
-
-# cart_order = sorted(summary["CART"].unique())
-# mature_order = ["not-mature", "mature"]
-
-# if len(cart_order) != 2:
-#     raise ValueError(f"This version expects exactly 2 CARs, but found {len(cart_order)}: {cart_order}")
-
-# car1, car2 = cart_order
-
-# pvals_between_cars = []
-
-# for d in dil_order:
-#     for mature_state in mature_order:
-#         sub = int_to_plot[
-#             (int_to_plot["dil_group"] == d)
-#             & (int_to_plot["mature"] == mature_state)
-#         ]
-
-#         g1 = np.log(sub.loc[sub["CART"] == car1, col_to_plot].values)
-#         g2 = np.log(sub.loc[sub["CART"] == car2, col_to_plot].values)
-
-#         if len(g1) < 2 or len(g2) < 2:
-#             p = np.nan
-#         else:
-#             _, p = stats.ttest_ind(g1, g2, equal_var=False)
-
-#         pvals_between_cars.append({
-#             "dil_group": d,
-#             "mature": mature_state,
-#             "p_value": p
-#         })
-
-# pvals_between_cars = pd.DataFrame(pvals_between_cars)
-
-# pvals_between_maturation = []
-
-# for d in dil_order:
-#     for cart in cart_order:
-#         sub = int_to_plot[
-#             (int_to_plot["dil_group"] == d)
-#             & (int_to_plot["CART"] == cart)
-#         ]
-
-#         g1 = np.log(sub.loc[sub["mature"] == "not-mature", col_to_plot].values)
-#         g2 = np.log(sub.loc[sub["mature"] == "mature", col_to_plot].values)
-
-#         if len(g1) < 2 or len(g2) < 2:
-#             p = np.nan
-#         else:
-#             _, p = stats.ttest_ind(g1, g2, equal_var=False)
-
-#         pvals_between_maturation.append({
-#             "dil_group": d,
-#             "CART": cart,
-#             "p_value": p
-#         })
-
-# pvals_between_maturation = pd.DataFrame(pvals_between_maturation)
-
-# fig, axes = plt.subplots(
-#     1,
-#     len(dil_order),
-#     figsize=(6.5 * len(dil_order), 4.8),
-#     sharey=True
-# )
-
-# if len(dil_order) == 1:
-#     axes = [axes]
-
-# x_base = {c: i for i, c in enumerate(cart_order)}
-# offset_step = 0.25
-# mature_to_i = {m: i for i, m in enumerate(mature_order)}
-
-# palette = {
-#     "not-mature": "#b23a8a",
-#     "mature": "#1A7A42"
-# }
-
-# box_width = 0.18
-
-# global_top_data = int_to_plot[col_to_plot].dropna().quantile(0.98)
-
-# h_global = global_top_data * 0.01
-
-# y_within_car_1_global = global_top_data * 0.8
-# y_within_car_2_global = global_top_data * 0.85
-# y_between_cars_notmat_global = global_top_data * 0.9
-# y_between_cars_mat_global = global_top_data * 0.95
-
-# global_ylim_top = global_top_data
-
-# for ax, d in zip(axes, dil_order):
-
-#     sub_data = int_to_plot[int_to_plot["dil_group"] == d].copy()
-#     pos = {}
-
-#     for cart in cart_order:
-#         for mature_state in mature_order:
-#             sub = sub_data[
-#                 (sub_data["CART"] == cart)
-#                 & (sub_data["mature"] == mature_state)
-#             ][col_to_plot].dropna()
-
-#             if len(sub) == 0:
-#                 continue
-
-#             base = x_base[cart]
-#             offset = (mature_to_i[mature_state] - (len(mature_order) - 1) / 2) * offset_step
-#             x = base + offset
-
-#             bp = ax.boxplot(
-#                 sub,
-#                 positions=[x],
-#                 widths=box_width,
-#                 patch_artist=True,
-#                 showfliers=False
-#             )
-
-#             for box in bp["boxes"]:
-#                 box.set(facecolor=palette[mature_state], alpha=0.6)
-
-#             for element in ["whiskers", "caps", "medians"]:
-#                 for item in bp[element]:
-#                     item.set(color="black")
-
-#             jitter = np.random.normal(0, 0.02, size=len(sub))
-
-#             ax.scatter(
-#                 np.full(len(sub), x) + jitter,
-#                 sub,
-#                 color="black",
-#                 s=15,
-#                 alpha=0.4,
-#                 zorder=3
-#             )
-
-#             pos.setdefault(cart, {})[mature_state] = x
-
-#     for i, row in pvals_between_maturation[
-#         pvals_between_maturation["dil_group"] == d
-#     ].reset_index(drop=True).iterrows():
-
-#         cart = row["CART"]
-#         p = row["p_value"]
-
-#         if pd.isna(p):
-#             continue
-#         if cart not in pos:
-#             continue
-#         if "not-mature" not in pos[cart] or "mature" not in pos[cart]:
-#             continue
-
-#         x1 = pos[cart]["not-mature"]
-#         x2 = pos[cart]["mature"]
-
-#         yb = y_within_car_1_global if i == 0 else y_within_car_2_global
-#         add_bracket_with_p(ax, x1, x2, yb, h_global, format_p(p))
-
-#     for _, row in pvals_between_cars[
-#         pvals_between_cars["dil_group"] == d
-#     ].iterrows():
-
-#         mature_state = row["mature"]
-#         p = row["p_value"]
-
-#         if pd.isna(p):
-#             continue
-#         if car1 not in pos or car2 not in pos:
-#             continue
-#         if mature_state not in pos[car1] or mature_state not in pos[car2]:
-#             continue
-
-#         x1 = pos[car1][mature_state]
-#         x2 = pos[car2][mature_state]
-
-#         if mature_state == "not-mature":
-#             yb = y_between_cars_notmat_global
-#         else:
-#             yb = y_between_cars_mat_global
-
-#         add_bracket_with_p(ax, x1, x2, yb, h_global, format_p(p))
-
-#     ax.set_title(f"dil_group: {d}")
-#     ax.set_xticks([x_base[c] for c in cart_order])
-#     ax.set_xticklabels(cart_order)
-#     ax.set_xlabel("CART")
-#     ax.set_xlim(-0.5, len(cart_order) - 0.5)
-#     ax.set_ylim(0, global_ylim_top)
-#     ax.ticklabel_format(style="plain", axis="y")
-#     ax.spines["top"].set_visible(False)
-#     ax.spines["right"].set_visible(False)
-
-# axes[0].set_ylabel(title_dict[col_to_plot])
-
-# handles = [
-#     Line2D(
-#         [0], [0],
-#         marker="o",
-#         linestyle="None",
-#         color=palette[m],
-#         label=str(m),
-#         markersize=7
-#     )
-#     for m in mature_order
-# ]
-
-# axes[-1].legend(handles=handles, title="Mature", frameon=False)
-
-# # summary.to_csv(os.path.join(SAVE_FOLDER, rf'1_intensity_maturation_{name[col_to_plot]}_{expression}_allcomparisons_by_density.csv'), index=False)
-
-# plt.tight_layout()
-# # plt.savefig(os.path.join(SAVE_FOLDER, rf'1_intensity_maturation_{name[col_to_plot]}_{expression}_allcomparisons_by_density.pdf'), dpi=600)
-# # plt.savefig(os.path.join(SAVE_FOLDER, rf'1_intensity_maturation_{name[col_to_plot]}_{expression}_allcomparisons_by_density.png'), dpi=600)
-
-# plt.show()

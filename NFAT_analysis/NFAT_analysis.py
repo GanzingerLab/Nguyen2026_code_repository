@@ -511,7 +511,7 @@ for root, dirs, files in os.walk(path):
 
 #%% Run analuysis for all nd2 files and make df with all results
 all_dfs = []
-for folder in nd2_files[0:1]: 
+for folder in nd2_files:
     print('Processing:', folder)
     results, linked = NFAT(folder).analyze_NFAT(save_outlines=False, thr = 1.1, n = 5)
     results_df = (
@@ -541,7 +541,6 @@ all_results2.loc[all_results2['dil'] == '10His-SNAP', 'CAR'] = "10His-SNAP" #Set
 all_results2.to_csv(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\nfat_translocation.csv')
 
 #%% Plot
-stats = pd.read_csv(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\nfat_translocation_stats.csv')
 def p_to_text(p):
     """
     Convert a p-value into a compact string for plot annotation.
@@ -627,26 +626,10 @@ for (g1, g2) in comparisons:
     k += 1
 
 ax.legend(title="dil", bbox_to_anchor=(1.02, 1), loc="upper left")
-# plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig3_NFAT.pdf', dpi = 600)
-# plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig3_NFAT.png', dpi = 600)
+plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig3_NFAT.pdf', dpi = 600)
+plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig3_NFAT.png', dpi = 600)
 plt.tight_layout()
-plt.show()
-summary_nfat = (
-    stats
-    .groupby(['CAR', 'dil'])['prop']
-    .agg(
-        n_samples='count',
-        mean_prop='mean',
-        median_prop='median'
-    )
-    .reset_index()
-)
-# summary_nfat.to_csv(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\20260409_new\nfat_translocation_summary.csv', index=False)
-print(summary_nfat)
-#%% Plot for time
-all_results2 = pd.read_csv(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\nfat_translocation.csv')
-stats = pd.read_csv(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\nfat_translocation_stats.csv')
-
+#%%#%% Plot for time
 def p_to_text(p):
     """
     Convert a p-value into a compact string for plot annotation.
@@ -738,35 +721,6 @@ for (g1, g2) in comparisons:
     k += 1
 
 ax.legend(title="dil", bbox_to_anchor=(1.02, 1), loc="upper left")
-# plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig3_NFAT_time.pdf', dpi = 600)
-# plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig3_NFAT_time.png', dpi = 600)
+plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig3_NFAT_time.pdf', dpi = 600)
+plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig3_NFAT_time.png', dpi = 600)
 plt.tight_layout()
-summary_table = (
-    all_results2
-    .groupby(["CAR", "dil"], dropna=False)["start_frame"]
-    .agg(
-        median="median",
-        mean="mean",
-        std="std",
-        n="count"
-    )
-    .reset_index()
-)
-
-print(summary_table)
-
-# summary_table.to_csv(
-#     r"P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig3_NFAT_time_summary.csv",
-#     index=False
-# )
-
-#%%
-folder = r"P:\10 CART Chi\6. All data\3. NFAT translocation\with Hoechst nucleus stain\Low exp CAR\100xdilutedCD19\20260204\CART4Lo\R4\R4.nd2"
-a = NFAT(folder)
-a.analyze_NFAT(save_outlines=False, thr = 1.1, n = 5)
-#%%
-print(folder)
-nuc = a.linked_filt2
-b = a.results
-example = nuc[nuc["particle"]==15]
-plt.plot(example["frame"]*30, example["nuc_cyto_ratio"])
