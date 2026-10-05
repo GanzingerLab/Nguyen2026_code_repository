@@ -511,7 +511,7 @@ for root, dirs, files in os.walk(path):
 
 #%% Run analuysis for all nd2 files and make df with all results
 all_dfs = []
-for folder in nd2_files:
+for folder in nd2_files: 
     print('Processing:', folder)
     results, linked = NFAT(folder).analyze_NFAT(save_outlines=False, thr = 1.1, n = 5)
     results_df = (
@@ -541,6 +541,7 @@ all_results2.loc[all_results2['dil'] == '10His-SNAP', 'CAR'] = "10His-SNAP" #Set
 all_results2.to_csv(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\nfat_translocation.csv')
 
 #%% Plot
+stats = pd.read_csv(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\nfat_translocation_stats.csv')
 def p_to_text(p):
     """
     Convert a p-value into a compact string for plot annotation.
@@ -561,7 +562,7 @@ def add_sig_bar(ax, x1, x2, y, h, text):
     ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=1.5, c='black')
     ax.text((x1+x2)/2, y+h, text, ha='center', va='bottom')
 
-# Make plot
+
 fig, ax = plt.subplots(figsize=(8,6))
 sns.boxplot(data=stats, y='prop', x='CAR', hue='dil', showfliers=False, ax=ax)
 sns.stripplot(data=stats, y='prop', x='CAR', color='black', alpha=0.5, jitter=True, ax=ax)
@@ -569,7 +570,7 @@ ax.set_ylabel('Proportion of cells with NFAT translocation')
 ax.set_ylim(0, 1)
 
 
-#  Determine postions of the boxes
+
 cars = list(stats["CAR"].unique())
 dils = list(stats["dil"].unique())
 
@@ -584,7 +585,7 @@ for i, car in enumerate(cars):
     for j, dil in enumerate(dils):
         positions[(car, dil)] = i + offsets[j]
 
-# Set list comparisons for stats
+
 comparisons = []
 
 comparisons.append((("CART3Hi","100xdilutedCD19"),
@@ -597,7 +598,7 @@ for car in ["CART3Hi","CART4Hi","CART3Lo","CART4Lo"]:
     comparisons.append((("10His-SNAP","10His-SNAP"),
                         (car,"100xdilutedCD19")))
 
-#format plot and add stats
+
 y_base = 0.85
 gap = 0.05
 h = 0.015
@@ -629,28 +630,23 @@ ax.legend(title="dil", bbox_to_anchor=(1.02, 1), loc="upper left")
 plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig3_NFAT.pdf', dpi = 600)
 plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig3_NFAT.png', dpi = 600)
 plt.tight_layout()
-#%%#%% Plot for time
-def p_to_text(p):
-    """
-    Convert a p-value into a compact string for plot annotation.
-    """
-    if p < 1e-4: return "p<1e-4"
-    if p < 1e-3: return "p<1e-3"
-    if p < 1e-2: return "p<0.01"
-    return f"p={p:.3f}"
+plt.show()
+summary_nfat = (
+    stats
+    .groupby(['CAR', 'dil'])['prop']
+    .agg(
+        n_samples='count',
+        mean_prop='mean',
+        median_prop='median'
+    )
+    .reset_index()
+)
+summary_nfat.to_csv(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\20260409_new\nfat_translocation_summary.csv', index=False)
 
-def add_sig_bar(ax, x1, x2, y, h, text):
-    """
-    Draw a statistical significance bracket between two x-positions on a plot.
-    Notes
-    -----
-    - Assumes the y-axis is already scaled appropriately.
-    - Does not automatically avoid overlap; vertical stacking must be handled externally.
-    """
-    ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=1.5, c='black')
-    ax.text((x1+x2)/2, y+h, text, ha='center', va='bottom')
+#%% Plot for time
+all_results2 = pd.read_csv(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\nfat_translocation_0.3.csv')
+stats = pd.read_csv(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\analysis_output\nfat_translocation_stats_0.3.csv')
 
-# Make plot
 fig, ax = plt.subplots(figsize=(8,6))
 sns.boxplot(data=all_results2, y='start_frame', x='CAR', hue='dil', showfliers=False, ax=ax)
 sns.stripplot(data=all_results2, y='start_frame', x='CAR', color='black', alpha=0.5, jitter=True, ax=ax)
@@ -658,7 +654,7 @@ ax.set_ylabel('Time start of NFAT translocation (sec)')
 # ax.set_ylim(0, 1)
 
 
-#  Determine postions of the boxes
+
 cars = list(stats["CAR"].unique())
 dils = list(stats["dil"].unique())
 
@@ -673,7 +669,7 @@ for i, car in enumerate(cars):
     for j, dil in enumerate(dils):
         positions[(car, dil)] = i + offsets[j]
 
-# Set list comparisons for stats
+
 comparisons = []
 
 comparisons.append((("CART3Hi","100xdilutedCD19"),
@@ -690,8 +686,8 @@ for car in ["CART3Hi","CART4Hi","CART3Lo","CART4Lo"]:
 ymin, ymax = ax.get_ylim()
 yrange = ymax - ymin
 
-y_base = ymax * 0.95          # start near top of plot
-gap = yrange * 0.06           # vertical spacing between brackets
+y_base = ymax * 0.95          
+gap = yrange * 0.06          
 h = yrange * 0.02 
 k= 0
 
@@ -724,3 +720,18 @@ ax.legend(title="dil", bbox_to_anchor=(1.02, 1), loc="upper left")
 plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig3_NFAT_time.pdf', dpi = 600)
 plt.savefig(r'P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig3_NFAT_time.png', dpi = 600)
 plt.tight_layout()
+summary_table = (
+    all_results2
+    .groupby(["CAR", "dil"], dropna=False)["start_frame"]
+    .agg(
+        median="median",
+        mean="mean",
+        std="std",
+        n="count"
+    )
+    .reset_index()
+)
+
+print(summary_table)
+
+summary_table.to_csv(r"P:\10 CART Chi\6. All data\1. ZAP70 recruitment\20250801_filtered\output\Nguyen2026_analysis\figures\Fig3_NFAT_time_summary.csv", index=False)
