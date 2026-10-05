@@ -219,7 +219,7 @@ expected_diameter = 12 #in um
 search_range = 15 #for tracking
 memory = 8 # for tracking
 
-for i in nd2_dirs[0:1]:
+for i in nd2_dirs:
     file = glob(i + '/**.nd2', recursive=True)[0] 
     path = os.path.dirname(file)
     #open images
