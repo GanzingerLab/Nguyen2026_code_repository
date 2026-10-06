@@ -84,6 +84,7 @@ class LinkSettings:
         self.suffix = '' #sufix for the name of the file, if necessary. 
         self.fil_len = 20 #filter the length of the tracks. Tracks shorter than this ammount of frames will be filtered
         self.fil_diff = 0.0002 #Filter for immobile particles. Tracks with a diffusion coefficient smaller than this number will be filtered
+        self.save_CSV = False 
         self.tracker = 'trackpy' #Tracker algorithm to use: trackpy or swift. After talking with Chris, swift is very complicated and the focus of the developers is not 
         # really tracking, but diffusion rates. So, swift is not implemented, and I am not sure if it will. 
         self.memory = 1 #max number of frames from which a particle can disappear 
