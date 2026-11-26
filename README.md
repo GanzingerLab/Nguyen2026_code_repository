@@ -234,9 +234,9 @@ Installation time may vary depending on the internet connection, hardware specif
 ## 4. Data availability
 
 The complete experimental imaging dataset associated with Nguyen et al. (2026) is deposited in the BioImage Archive.
-##########CHECK
-- Accession number: [ACCESSION NUMBER]
-- Repository link: [LINK]
+
+- Accession number: S-BIAD4491
+- Repository link: [BioImage Archive – S-BIAD4491](https://www.ebi.ac.uk/biostudies/bioimages/studies/S-BIAD4491)
 
 The deposited dataset includes:
 
@@ -247,7 +247,7 @@ The deposited dataset includes:
 - Manually delineated ImageJ cell ROIs (.roi) for the CD19 and ZAP70
   analysis.
 
-####CHECK: The original directory structure should be preserved when downloading the data, as experimental metadata are extracted from directory and file names.
+The original directory structure should be preserved when downloading the data, as experimental metadata are extracted from directory and file names.
 
 Intermediate processed images and quantitative analysis results can be regenerated using the provided analysis code.
 
